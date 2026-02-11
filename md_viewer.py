@@ -211,13 +211,83 @@ def parse_markdown(md_text):
 
         # Horizontal Rule
         if stripped.startswith('---') or stripped.startswith('***'):
-            node = Node('hr', root)
-            node.style.margin = [10, 0, 10, 0]
-            node.style.h = 2
-            node.style.bg_color = C_BLACK
-            root.add_child(node)
-            i += 1
-            continue
+            # Check if this is a table header separator
+            if stripped.startswith('---') and '|' in stripped:
+               pass # Let the table parser handle it (actually table parser handles prev line)
+            elif not stripped.startswith('|'): # Only if not a table row
+                node = Node('hr', root)
+                node.style.margin = [10, 0, 10, 0]
+                node.style.h = 2
+                node.style.bg_color = C_BLACK
+                root.add_child(node)
+                i += 1
+                continue
+
+        # Tables
+        if stripped.startswith('|'):
+            # Look ahead to see if it's a table (next line has separator)
+            if i + 1 < n_lines:
+                next_line = lines[i+1].strip()
+                if next_line.startswith('|') and '---' in next_line:
+                    # It is a table!
+
+                    # Parse Header
+                    header_cells = [c.strip() for c in stripped.strip('|').split('|')]
+
+                    # Parse Separator (Alignment)
+                    alignments = [] # 0=Left, 1=Center, 2=Right
+                    sep_cells = [c.strip() for c in next_line.strip('|').split('|')]
+
+                    for sep in sep_cells:
+                        if sep.startswith(':') and sep.endswith(':'):
+                            alignments.append(1)
+                        elif sep.endswith(':'):
+                            alignments.append(2)
+                        else:
+                            alignments.append(0)
+
+                    table_node = Node('table', root)
+                    table_node.style.margin = [10, 0, 10, 0]
+                    table_node.style.border = [1, 1, 1, 1]
+                    table_node.col_alignments = alignments
+                    table_node.col_count = len(header_cells)
+
+                    # Add Header Row
+                    row_node = Node('table_row', table_node)
+                    row_node.style.bg_color = 0xCE79 # Light header bg
+                    for idx, txt in enumerate(header_cells):
+                        cell = Node('table_cell', row_node)
+                        cell.style.padding = [4, 4, 4, 4]
+                        cell.style.border = [0, 1, 1, 0] # R, B
+                        cell.style.align = alignments[idx] if idx < len(alignments) else 0
+                        cell.spans = parse_inline(txt)
+                        row_node.add_child(cell)
+                    table_node.add_child(row_node)
+
+                    i += 2
+
+                    # Parse Body
+                    while i < n_lines:
+                        line = lines[i].strip()
+                        if not line.startswith('|'): break
+
+                        cells = [c.strip() for c in line.strip('|').split('|')]
+                        row_node = Node('table_row', table_node)
+
+                        for idx, txt in enumerate(cells):
+                            if idx >= table_node.col_count: break
+                            cell = Node('table_cell', row_node)
+                            cell.style.padding = [4, 4, 4, 4]
+                            cell.style.border = [0, 1, 1, 0] # R, B
+                            cell.style.align = alignments[idx] if idx < len(alignments) else 0
+                            cell.spans = parse_inline(txt)
+                            row_node.add_child(cell)
+
+                        table_node.add_child(row_node)
+                        i += 1
+
+                    root.add_child(table_node)
+                    continue
 
         # Block Quotes
         if stripped.startswith('>'):
@@ -251,6 +321,57 @@ def parse_markdown(md_text):
             node.style.border_color = C_QUOTE_BAR # Silver
 
             node.spans = parse_inline(quote_text)
+            root.add_child(node)
+            continue
+
+        # Custom Containers
+        if stripped.startswith('::: '):
+            container_type = stripped[4:].strip().lower()
+
+            # Colors
+            bg_col = 0xEF5D # Gray default
+            border_col = C_BLACK
+
+            if 'warning' in container_type:
+                bg_col = 0xFFE0 # Yellow-ish
+                border_col = 0xFD20 # Orange
+            elif 'tip' in container_type:
+                bg_col = 0xE7FF # Green-ish
+                border_col = 0x07E0 # Green
+            elif 'danger' in container_type:
+                bg_col = 0xF800 # Red-ish
+                border_col = 0xF800 # Red
+
+            node = Node('container', root)
+            node.style.margin = [10, 0, 10, 0]
+            node.style.padding = [10, 10, 10, 10]
+            node.style.bg_color = bg_col
+            node.style.border = [1, 1, 1, 4] # Left border thick
+            node.style.border_color = border_col
+
+            i += 1
+
+            # Capture content until :::
+            container_content = []
+            while i < n_lines:
+                if lines[i].strip() == ':::':
+                    i += 1
+                    break
+                container_content.append(lines[i])
+                i += 1
+
+            # Recurse? Simple implementation: Treat as paragraph text for now
+            # Proper implementation would recursively parse markdown inside.
+            # Let's try to just parse it as inline text for simplicity, or
+            # better yet, re-use parse_markdown recursively but we need to change parse_markdown signature to take a parent node?
+            # Or just wrap content in a paragraph node inside this container.
+
+            content_text = "\n".join(container_content)
+            para = Node('paragraph', node)
+            para.style.margin = [0, 0, 0, 0]
+            para.spans = parse_inline(content_text)
+            node.add_child(para)
+
             root.add_child(node)
             continue
 
@@ -394,7 +515,70 @@ def resolve_layout(node, container_w):
     # Children or Content?
     current_h = s.padding[0] + s.border[0]
 
-    if node.spans:
+    if node.type == 'table':
+        # Table Layout Logic
+        # 1. Calculate max width for each column based on content
+        col_widths = [0] * node.col_count
+
+        # We need to temporarily resolve children to find their content widths
+        # This is a bit tricky since we don't know widths yet.
+        # Approximation: Measure text width of each cell
+
+        rows = node.children
+        for row in rows:
+            for i, cell in enumerate(row.children):
+                if i < len(col_widths):
+                    # Measure cell content (unwrapped)
+                    w = 0
+                    for txt, _, _ in cell.spans:
+                        tw, _ = dsize(txt, None)
+                        w += tw
+                    col_widths[i] = max(col_widths[i], w + 10) # + padding
+
+        # 2. Distribute available width
+        total_req_w = sum(col_widths)
+        if total_req_w > content_w:
+            # Shrink proportionally
+            scale = content_w / total_req_w
+            col_widths = [int(w * scale) for w in col_widths]
+        else:
+            # Expand to fill? Or just center? Let's just use computed widths
+            pass
+
+        # 3. Layout Rows/Cells
+        current_h = s.padding[0] + s.border[0]
+
+        for row in rows:
+            row.x = s.margin[3] + s.border[3] + s.padding[3]
+            row.y = current_h
+            row.w = sum(col_widths)
+
+            cell_x = 0
+            max_cell_h = 0
+
+            for i, cell in enumerate(row.children):
+                if i >= len(col_widths): break
+
+                cell.x = cell_x
+                cell.y = 0
+                cell.w = col_widths[i]
+
+                # Resolve cell content with fixed width
+                resolve_layout(cell, col_widths[i])
+
+                max_cell_h = max(max_cell_h, cell.h)
+                cell_x += col_widths[i]
+
+            # Stretch all cells to row height
+            for cell in row.children:
+                cell.h = max_cell_h
+
+            row.h = max_cell_h
+            current_h += row.h
+
+        node.h = current_h + s.padding[2] + s.border[2]
+
+    elif node.spans:
         # It's a text/leaf node
         lines = get_wrapped_lines(node.spans, content_w, s.pre)
         node.lines = lines
@@ -405,12 +589,17 @@ def resolve_layout(node, container_w):
         for child in node.children:
             resolve_layout(child, content_w)
 
-            child.x = s.margin[3] + s.border[3] + child.style.margin[3] + s.padding[3]
-            child.y = current_h + child.style.margin[0]
+            # If parent is table row, children (cells) already have x/y/w set by table layout logic
+            if node.type != 'table_row':
+                child.x = s.margin[3] + s.border[3] + child.style.margin[3] + s.padding[3]
+                child.y = current_h + child.style.margin[0]
+                current_h += child.h + child.style.margin[0] + child.style.margin[2]
+            else:
+                 # Table row height is max of cells
+                 pass
 
-            current_h += child.h + child.style.margin[0] + child.style.margin[2]
-
-    node.h = current_h + s.padding[2] + s.border[2]
+    if node.type != 'table_row':
+        node.h = current_h + s.padding[2] + s.border[2]
 
 # --- Rendering ---
 
@@ -480,6 +669,10 @@ def draw_node(node, abs_x, abs_y, scroll_y, hotspots=None):
                              hotspots.append(((curr_x, txt_y, t_w, LINE_H), style_data))
                     elif style_id == 5: # Strikethrough
                          dline(curr_x, txt_y + LINE_H // 2, curr_x + t_w, txt_y + LINE_H // 2, col)
+                    elif style_id == 4: # Italic/Underscore
+                         # Since no italic font, draw a light underline
+                         # dline(curr_x, txt_y + LINE_H - 1, curr_x + t_w, txt_y + LINE_H - 1, col)
+                         pass
 
                     dtext(curr_x, txt_y + TEXT_Y_OFFSET, col, text)
                     curr_x += t_w
