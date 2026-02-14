@@ -30,6 +30,7 @@ THEMES = {
         'key_spec': safe_rgb(28, 29, 28), # Secondary (Light Grey)
         'key_out':  C_DARK,               # Dark (Unused for key borders now)
         'txt':      safe_rgb(4, 4, 4),
+        'txt_dim':      safe_rgb(8, 8, 8),
         'accent':   safe_rgb(1, 11, 26),  # Deep Blue
         'txt_acc':  C_WHITE,
         'hl':       safe_rgb(28, 29, 28), # Highlight matches secondary
@@ -42,6 +43,7 @@ THEMES = {
         'key_spec': safe_rgb(11, 11, 12), # Secondary (Dark Grey)
         'key_out':  safe_rgb(12, 19, 31),
         'txt':      C_WHITE,
+        'txt_dim':      safe_rgb(8, 8, 8),
         'accent':   safe_rgb(12, 19, 31),
         'txt_acc':  C_WHITE,
         'hl':       safe_rgb(11, 11, 12),
@@ -54,6 +56,7 @@ THEMES = {
         'key_spec': 0xCE59,
         'key_out':  C_BLACK,
         'txt':      C_BLACK,
+        'txt_dim':      safe_rgb(8, 8, 8),
         'accent':   C_BLACK,
         'txt_acc':  C_WHITE,
         'hl':       0xCE59,
@@ -599,3 +602,92 @@ def input(prompt="Input:", type="text", theme="light", layout="qwerty"):
 def pick(options, prompt="Select:", theme="light", multi=False):
     picker = ListPicker(options, prompt, theme, multi)
     return picker.run()
+
+class ConfirmationDialog:
+    def __init__(self, title, body, ok_text="OK", cancel_text="Cancel", theme="light"):
+        self.title = title
+        self.body = body
+        self.ok_text = ok_text
+        self.cancel_text = cancel_text
+        self.theme = get_theme(theme)
+        
+        self.header_h = 40
+        self.footer_h = 45
+        self.btn_w = SCREEN_W // 2
+
+    def draw_btn(self, x, y, w, h, text, pressed):
+        t = self.theme
+        bg = t['hl'] if pressed else t['key_spec']
+        drect(x, y, x + w, y + h, bg)
+        drect_border(x, y, x + w, y + h, C_NONE, 1, t['key_spec'])
+        dtext_opt(x + w//2, y + h//2, t['txt'], C_NONE, DTEXT_CENTER, DTEXT_MIDDLE, text, -1)
+
+    def draw(self, btn_ok_pressed, btn_cn_pressed):
+        t = self.theme
+        dclear(t['modal_bg'])
+        
+        # Header
+        drect(0, 0, SCREEN_W, self.header_h, t['accent'])
+        dtext_opt(SCREEN_W//2, self.header_h//2, t['txt_acc'], C_NONE, DTEXT_CENTER, DTEXT_MIDDLE, self.title, -1)
+        
+        # Body
+        cy = (SCREEN_H - self.header_h - self.footer_h) // 2 + self.header_h
+        dtext_opt(SCREEN_W//2, cy, t['txt'], C_NONE, DTEXT_CENTER, DTEXT_MIDDLE, self.body, -1)
+        
+        # Footer
+        fy = SCREEN_H - self.footer_h
+        self.draw_btn(0, fy, self.btn_w, self.footer_h, self.cancel_text, btn_cn_pressed)
+        self.draw_btn(self.btn_w, fy, self.btn_w, self.footer_h, self.ok_text, btn_ok_pressed)
+
+    def run(self):
+        touch_latched = False
+        btn_ok_pressed = False
+        btn_cn_pressed = False
+        
+        while True:
+            self.draw(btn_ok_pressed, btn_cn_pressed)
+            dupdate()
+            cleareventflips()
+            
+            # Key Handling
+            if keypressed(KEY_EXIT) or keypressed(KEY_DEL): return False
+            if keypressed(KEY_EXE): return True
+            
+            # Event Handling
+            ev = pollevent()
+            events = []
+            while ev.type != KEYEV_NONE:
+                events.append(ev)
+                ev = pollevent()
+                
+            touch = None
+            for e in events:
+                if e.type == KEYEV_TOUCH_DOWN and not touch_latched:
+                    touch_latched = True
+                    touch = e
+                elif e.type == KEYEV_TOUCH_UP:
+                    touch_latched = False
+                    touch = e
+            
+            if touch:
+                tx, ty = touch.x, touch.y
+                fy = SCREEN_H - self.footer_h
+                
+                if ty >= fy:
+                    if tx < self.btn_w: # Cancel
+                        if touch.type == KEYEV_TOUCH_DOWN: btn_cn_pressed = True
+                        elif touch.type == KEYEV_TOUCH_UP and btn_cn_pressed: return False
+                    else: # OK
+                        if touch.type == KEYEV_TOUCH_DOWN: btn_ok_pressed = True
+                        elif touch.type == KEYEV_TOUCH_UP and btn_ok_pressed: return True
+                
+                # Clear presses if touch moves out or ends
+                if touch.type == KEYEV_TOUCH_UP:
+                    btn_cn_pressed = False
+                    btn_ok_pressed = False
+            
+            time.sleep(0.01)
+
+def ask(title, body, ok_text="OK", cancel_text="Cancel", theme="light"):
+    dlg = ConfirmationDialog(title, body, ok_text, cancel_text, theme)
+    return dlg.run()
