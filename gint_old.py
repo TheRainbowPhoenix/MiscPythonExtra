@@ -1,9 +1,10 @@
+import os
 import time
 import pygame
 from pygame.locals import *
 import sys
 import struct
-from typing import List, Optional, Tuple, Set
+from typing import List, Optional, Tuple
 
 
 # Display dimensions
@@ -55,7 +56,7 @@ vram = pygame.Surface((DWIDTH, DHEIGHT))
 clock = pygame.time.Clock()
 FPS = 100  # Adjust to control game speed
 
-#  NEW: Window Clipping State
+# --- NEW: Window Clipping State ---
 _dwindow = (0, 0, DWIDTH, DHEIGHT)
 
 def _to_rgb(color: int) -> tuple:
@@ -114,6 +115,7 @@ def dupdate():
     else:
         scaled = pygame.transform.scale(vram, (DWIDTH * SCALE, DHEIGHT * SCALE))
         screen.blit(scaled, (0, 0))
+
     pygame.display.flip()
     clock.tick(FPS)
 
@@ -189,7 +191,7 @@ def dpoly(vertices: List[int], fill: int, border: int):
 
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Fonts
         
@@ -225,7 +227,7 @@ def dfont(font: GintFont):
     global _current_font
     _current_font = font
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Load bitmap font
 _uf8x9_font = pygame.image.load("_data/font8x9.png").convert()
@@ -605,9 +607,6 @@ _key_mapping = {
     K_RALT: KEY_KBD,
     K_LALT: KEY_KBD
 }
-#  Gint Keyboard State Simulation ---
-_state_queue: Set[int] = set() # User-visible key state, updated by pollevent
-_state_flips: Set[int] = set() # Keys that changed state since last cleareventflips
 
 # State tracking
 _key_states = {}
@@ -624,8 +623,6 @@ class _Event:
 class KeyEvent(_Event):
     def __init__(self, event_type=KEYEV_NONE, key=None, pos=(0, 0)):
         super().__init__(event_type, key)
-
-        mods = pygame.key.get_mods()
 
         self.time = int(time.monotonic() * 1000)
         self.mod = False
@@ -706,7 +703,6 @@ def pollevent():
             # Capture Print Screen key to save VRAM
             if event.key == pygame.K_PRINTSCREEN:  # <-- Add this block
                 pygame.image.save(vram, "screenshot.png")
-                print("screenshot !!")
                 continue  # Skip further processing for this event
                 
             if event.key in _key_mapping:
@@ -725,21 +721,6 @@ def pollevent():
                 return KeyEvent(KEYEV_UP, mapped)
     
     return KeyEvent(KEYEV_NONE, None)
-
-def keypressed(key: int) -> bool:
-    """
-    Checks if a key is currently down AND its state has changed
-    since the last call to cleareventflips().
-    """
-    return (key in _state_queue) and (key in _state_flips)
-
-def keyreleased(key: int) -> bool:
-    """
-    Checks if a key is currently up AND its state has changed
-    since the last call to cleareventflips().
-    """
-    return (key not in _state_queue) and (key in _state_flips)
-
 
 def getkey() -> KeyEvent:
     return getkey_opt(GETKEY_DEFAULT, None)
@@ -775,9 +756,6 @@ def getkey_opt(options: int, timeout_ms: Optional[int] = 2000) -> KeyEvent:
 def keydown(key: int) -> bool:
     """Check if a specific key is currently pressed"""
     pressed = pygame.key.get_pressed()
-    if pygame.K_PRINTSCREEN in pressed:
-        pygame.image.save(vram, "screenshot.png")
-        print("screenshot !!")
     return any(pressed[pg_key] for pg_key in _inverse_key_mapping.get(key, []))
 
 def keydown_all(*keys: int) -> bool:
@@ -803,7 +781,7 @@ def cleareventflips():
     _key_states = {}
     _modifiers = {'shift': False, 'alpha': False}
 
-# -----------------------------------------------------------
+# --------------------------------------------------------------
 # Image stuff
 IMAGE_MONO = 0
 IMAGE_RGB565 = 1

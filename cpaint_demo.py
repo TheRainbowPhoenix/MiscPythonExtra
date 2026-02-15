@@ -27,6 +27,8 @@ BUF_W = 160
 BUF_H = (528 - HEADER_H) // 2 # ~239
 BUF_HEADER_OFFSET = HEADER_H
 
+MAX_JUMP = 70
+
 # =============================================================================
 # IMAGE & BUFFER MANAGEMENT
 # =============================================================================
@@ -605,7 +607,7 @@ class PaintApp:
                         seg_len = math.sqrt(dx*dx + dy*dy)
                         
                         # Sanity check for huge jumps
-                        if seg_len > 100: 
+                        if seg_len > MAX_JUMP: 
                             last_x, last_y = e.x, e.y
                             continue
 
