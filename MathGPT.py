@@ -45,7 +45,8 @@ VOCAB_NUMS = {
     "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
     "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
     "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
-    "hundred": 100
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+    "hundred": 100, "thousand": 1000
 }
 
 VOCAB_OPS = {
@@ -56,7 +57,7 @@ VOCAB_OPS = {
 }
 
 def nlp_tokenize(text):
-    """Simple N-Gram tokenization & text-to-number evaluator returning steps for viz"""
+    """Simple N-Gram tokenization with Number Recreate logic"""
     steps = [("Input", text)]
     text = text.lower()
     
@@ -77,30 +78,99 @@ def nlp_tokenize(text):
     words = text.split()
     steps.append(("Split", " | ".join(words)))
     
-    nums = []
-    ops = []
-    parsed_view = []
+    # 4. Base Tokens Mapping
+    base_tokens = []
+    base_view = []
     
-    # 4. Tokenize to routing tensors
     for w in words:
         if w in VOCAB_NUMS:
-            nums.append(float(VOCAB_NUMS[w]))
-            parsed_view.append(f"[{VOCAB_NUMS[w]}]")
+            val = float(VOCAB_NUMS[w])
+            base_tokens.append(("num", val, w))
+            base_view.append(f"[{val}]")
         else:
             try:
-                nums.append(float(w))
-                parsed_view.append(f"[{float(w)}]")
+                val = float(w)
+                base_tokens.append(("num", val, w))
+                base_view.append(f"[{val}]")
             except ValueError:
                 if w in VOCAB_OPS:
-                    ops.append(VOCAB_OPS[w])
-                    parsed_view.append(f"<{VOCAB_OPS[w]}>")
+                    base_tokens.append(("op", VOCAB_OPS[w], w))
+                    base_view.append(f"<{VOCAB_OPS[w]}>")
                 elif w in [op for ex in EXPERTS for op in ex["keywords"]]:
-                    ops.append(w)
-                    parsed_view.append(f"<{w}>")
+                    base_tokens.append(("op", w, w))
+                    base_view.append(f"<{w}>")
                 else:
-                    parsed_view.append(f"~{w}~")
+                    base_tokens.append(("noise", w, w))
+                    base_view.append(f"~{w}~")
                     
-    steps.append(("Tokens", " ".join(parsed_view)))
+    steps.append(("Base Tokens", " ".join(base_view)))
+    
+    # 5. Number Recreate (Advanced Lookahead Logic)
+    nums = []
+    ops = []
+    recreate_view = []
+    
+    current_num_seq = []
+    
+    def process_num_seq(seq):
+        if not seq: return None
+        acc = seq[0]
+        decimal_divider = 1
+        
+        for i in range(1, len(seq)):
+            val = seq[i]
+            prev_val = seq[i-1]
+            
+            # Multiplier logic (Hundred / Thousand)
+            if val in [100, 1000]:
+                acc *= val
+                decimal_divider = 1
+                
+            # Direct addition (e.g., "twenty two" or "one hundred five")
+            elif val < 10 and (prev_val in [20, 30, 40, 50, 60, 70, 80, 90, 100, 1000]) and decimal_divider == 1:
+                acc += val
+                
+            # Complex Digits (Read Out Loud logic)
+            elif val < 10:
+                has_multiplier_ahead = 100 in seq[i+1:] or 1000 in seq[i+1:]
+                
+                if has_multiplier_ahead:
+                    # Shift left (e.g. 17 and 2 followed by 100 -> 172)
+                    acc = acc * 10 + val
+                else:
+                    # Decimal fallback (e.g. 17 and 2 -> 17.2)
+                    decimal_divider *= 10
+                    acc = acc + val / decimal_divider
+            else:
+                acc += val
+                
+        return acc
+
+    for t_type, val, raw in base_tokens:
+        if t_type == "num":
+            current_num_seq.append(val)
+        else:
+            if current_num_seq:
+                res = process_num_seq(current_num_seq)
+                nums.append(res)
+                # Clean up display if it's a perfect integer
+                disp_res = int(res) if res == int(res) else res
+                recreate_view.append(f"[{disp_res}]")
+                current_num_seq = []
+            
+            if t_type == "op":
+                ops.append(val)
+                recreate_view.append(f"<{val}>")
+            else:
+                recreate_view.append(f"~{val}~")
+                
+    if current_num_seq:
+        res = process_num_seq(current_num_seq)
+        nums.append(res)
+        disp_res = int(res) if res == int(res) else res
+        recreate_view.append(f"[{disp_res}]")
+        
+    steps.append(("Number Recreate", " ".join(recreate_view)))
     return nums, ops, steps
 
 # --- UI Helpers ---
@@ -147,7 +217,7 @@ def draw_connection(x1, y1, x2, y2, active=False):
     color = EXPERT_ON if active else C_RGB(24, 24, 24)
     dline(x1, y1, x2, y2, color)
 
-def render_moe(active_idx=-1, result_text="Waiting for input...", show_back=False, is_err=False, title="MathGPT MoE Router", show_steps_btn=False):
+def render_moe(active_idx=-1, result_text="Waiting for input...", show_back=False, is_err=False, title="AI MoE Router", show_steps_btn=False):
     t = cinput.get_theme('gpt')
     dclear(t['modal_bg'])
     draw_header(t, title)
@@ -389,7 +459,7 @@ def show_intro():
     
     while running:
         dclear(t['modal_bg'])
-        draw_header(t, "MathGPT MoE Router")
+        draw_header(t, "AI MoE Router")
 
         y = 100
         for line in texts:
@@ -428,13 +498,13 @@ def get_user_input():
     running = True
     touch_latched = False
 
-    examples = ["What is 21 times 2 ?", "2+3*5", "five and two", "twenty divided by 5"]
+    examples = ["What is 21 times 2 ?", "2+3*5", "five and two", "twenty divided by 5", "six seven times eleven"]
     ix, iy, iw, ih = 10, 60, 300, 45
     bx, by, bw, bh = 320 - 110, 528 - 50, 100, 40
 
     while running:
         dclear(t['modal_bg'])
-        draw_header(t, "Enter Math Problem")
+        draw_header(t, "Enter Math Equation")
 
         # Input field
         drect(ix, iy, ix+iw, iy+ih, t['key_bg'])
@@ -515,8 +585,10 @@ def run_visualizer(user_input):
             desc = "To make parsing easier without complex tools, spaces are added around math symbols like '+' and '-'."
         elif name == "Split":
             desc = "The text is split into an array of individual words (tokens) using spaces as boundaries."
-        else: # Tokens
-            desc = "Words are mapped to numbers ('two' -> 2.0) and operations ('plus' -> <add>). Unmatched words become ~noise~."
+        elif name == "Base Tokens":
+            desc = "Words are mapped to base numbers ('two' -> 2.0) and operations ('plus' -> <add>). Unmatched words become ~noise~."
+        elif name == "Number Recreate":
+            desc = "Adjacent numbers are intelligently merged. Lookaheads check for 'hundred/thousand' multipliers to shift digits vs adding decimals."
         detailed_steps.append({"title": name, "value": val, "desc": desc})
         
     # 2. Sequential MoE Execution
