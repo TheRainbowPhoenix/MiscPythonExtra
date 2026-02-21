@@ -32,7 +32,7 @@ def main():
         current_layout_name = layouts[curr_layout_idx]
         t = cinput.get_theme(current_theme_name)
         
-        # --- Draw Main Shell ---
+        #  Draw Main Shell ---
         dclear(t['modal_bg'])
         draw_header(current_theme_name)
         
@@ -43,7 +43,7 @@ def main():
         
         dupdate()
         
-        # --- Input Loop ---
+        #  Input Loop ---
         cleareventflips()
         
         # 1. Menu Trigger Check
@@ -55,26 +55,34 @@ def main():
         if keypressed(KEY_EXIT):
             running = False
             
-        # Touch
+        # 2. Event Processing
         ev = pollevent()
+        events = []
         while ev.type != KEYEV_NONE:
-            if ev.type == KEYEV_TOUCH_UP:
-                touch_latched = False
-            elif ev.type == KEYEV_TOUCH_DOWN and not touch_latched:
-                touch_latched = True
-                # Check Header/Menu Button Hitbox
-                if ev.y < HEADER_H and ev.x < 50:
-                    open_menu = True
+            events.append(ev)
             ev = pollevent()
             
-        # 2. Handle Menu Action
+        for e in events:
+            if e.type == KEYEV_TOUCH_UP:
+                touch_latched = False
+                    
+            elif e.type == KEYEV_TOUCH_DOWN and not touch_latched:
+                touch_latched = True
+                
+                # Check Header Click on Press (Ced-style)
+                if e.y < HEADER_H and e.x < 50:
+                    open_menu = True
+        
+        # 3. Handle Menu Action
         if open_menu:
+            cleareventflips() # Important: Clear events before showing new modal
             # Define Options
             opts = [
                 "Text Input Demo",
                 "Integer Input Demo",
                 "Float Input Demo",
                 "List Picker Demo",
+                "List View Demo",
                 f"Switch Theme ({themes[(curr_theme_idx+1)%len(themes)]})",
                 f"Switch Layout ({layouts[(curr_layout_idx+1)%len(layouts)]})",
                 "Quit"
@@ -129,5 +137,16 @@ def main():
                     dtext_opt(10, SCREEN_H//2, t['txt'], C_NONE, DTEXT_LEFT, DTEXT_MIDDLE, f"Selected: {res_str}", SCREEN_W-20)
                     dupdate()
                     getkey()
+            
+            elif choice == "List View Demo":
+                import cinput_list_demo
+                # Reload to ensure fresh start if run multiple times
+                try: 
+                    import sys
+                    if 'cinput_list_demo' in sys.modules: del sys.modules['cinput_list_demo']
+                    import cinput_list_demo
+                    cinput_list_demo.main()
+                except Exception as e:
+                    print(f"Error running list demo: {e}")
 
 main()

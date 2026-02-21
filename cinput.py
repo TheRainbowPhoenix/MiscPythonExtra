@@ -1,5 +1,6 @@
 from gint import *
 import time
+import math
 
 # =============================================================================
 # CONSTANTS & CONFIG
@@ -30,8 +31,8 @@ THEMES = {
         'key_spec': safe_rgb(28, 29, 28), # Secondary (Light Grey)
         'key_out':  C_DARK,               # Dark (Unused for key borders now)
         'txt':      safe_rgb(4, 4, 4),
-        'txt_dim':      safe_rgb(8, 8, 8),
-        'accent':   safe_rgb(1, 11, 26),  # Deep Blue
+        'txt_dim':  safe_rgb(8, 8, 8),
+        'accent':   safe_rgb(1, 11, 26),  
         'txt_acc':  C_WHITE,
         'hl':       safe_rgb(28, 29, 28), # Highlight matches secondary
         'check':    C_WHITE
@@ -43,7 +44,7 @@ THEMES = {
         'key_spec': safe_rgb(11, 11, 12), # Secondary (Dark Grey)
         'key_out':  safe_rgb(12, 19, 31),
         'txt':      C_WHITE,
-        'txt_dim':      safe_rgb(8, 8, 8),
+        'txt_dim':  safe_rgb(8, 8, 8),
         'accent':   safe_rgb(12, 19, 31),
         'txt_acc':  C_WHITE,
         'hl':       safe_rgb(11, 11, 12),
@@ -56,7 +57,7 @@ THEMES = {
         'key_spec': 0xCE59,
         'key_out':  C_BLACK,
         'txt':      C_BLACK,
-        'txt_dim':      safe_rgb(8, 8, 8),
+        'txt_dim':  safe_rgb(8, 8, 8),
         'accent':   C_BLACK,
         'txt_acc':  C_WHITE,
         'hl':       0xCE59,
@@ -67,6 +68,419 @@ THEMES = {
 def get_theme(name_or_dict) -> dict:
     if isinstance(name_or_dict, dict): return name_or_dict
     return THEMES.get(name_or_dict, THEMES['light'])
+
+# =============================================================================
+# REUSABLE LIST VIEW
+# =============================================================================
+
+class ListView:
+    def __init__(self, rect, items, row_h=40, theme='light', headers_h=None):
+        """
+        rect: (x, y, w, h) tuple
+        items: List of dicts {'text': str, 'type': 'item'|'section', 'height': int, ...} OR list of strings
+        """
+        self.x, self.y, self.w, self.h = rect
+        # Normalize items
+        self.items = []
+        for it in items:
+            if isinstance(it, dict): self.items.append(it)
+            else: self.items.append({'text': str(it), 'type': 'item'})
+            
+        self.base_row_h = row_h
+        self.headers_h = headers_h if headers_h else row_h
+        self.theme = get_theme(theme)
+        
+        # Layout State
+        self.total_h = 0
+        self.recalc_layout()
+        
+        # Selection & Scroll
+        self.selected_index = -1
+        self.scroll_y = 0 
+        self.max_scroll = max(0, self.total_h - self.h)
+        
+        # Select first selectable item
+        self.select_next(0, 1)
+
+        # Touch State
+        self.is_dragging = False
+        self.touch_start_y = 0
+        self.touch_start_idx = 0
+        self.touch_start_time = 0
+        self.touch_acc_y = 0.0 # Accumulator for drag distance
+        self.touch_initial_item_idx = -1
+        self.long_press_triggered = False
+        
+        # Configuration
+        self.drag_threshold = 10
+        self.long_press_delay = 0.5 # seconds
+        self.snap_sensitivity = 1.0 # 1.0 = 1 item height drag moves 1 item
+
+    def recalc_layout(self):
+        """Calculate positions and heights of all items."""
+        total_h = 0
+        for it in self.items:
+            h = it.get('height', self.headers_h if it.get('type') == 'section' else self.base_row_h)
+            it['_h'] = h
+            it['_y'] = total_h
+            total_h += h
+        self.total_h = total_h
+        self.max_scroll = max(0, self.total_h - self.h)
+
+    def select_next(self, start_idx, step):
+        """Find next selectable item"""
+        idx = start_idx
+        count = len(self.items)
+        if count == 0: 
+            self.selected_index = -1
+            return
+            
+        # Safety loop limit
+        for _ in range(count):
+            if 0 <= idx < count:
+                if self.items[idx].get('type', 'item') != 'section':
+                    self.selected_index = idx
+                    self.ensure_visible()
+                    return
+            idx += step
+            # Clamp logic
+            if idx < 0 or idx >= count: break
+
+    def ensure_visible(self):
+        """Scroll to keep selected_index in view"""
+        if self.selected_index < 0 or self.selected_index >= len(self.items): return
+        
+        it = self.items[self.selected_index]
+        item_top = it['_y']
+        item_bot = item_top + it['_h']
+        
+        view_top = self.scroll_y
+        view_bot = self.scroll_y + self.h
+        
+        if item_top < view_top:
+            self.scroll_y = item_top
+        elif item_bot > view_bot:
+            self.scroll_y = item_bot - self.h
+            
+        self.clamp_scroll()
+
+    def clamp_scroll(self):
+        self.max_scroll = max(0, self.total_h - self.h)
+        self.scroll_y = max(0, min(self.max_scroll, self.scroll_y))
+
+    def update(self, events):
+        """
+        Process events.
+        """
+        now = time.monotonic()
+        
+        # Touch Handling
+        touch_up = None
+        touch_down = None
+        current_touch = None
+        
+        # Pre-process touch events
+        for e in events:
+            if e.type == KEYEV_TOUCH_DOWN:
+                touch_down = e
+                current_touch = e
+            elif e.type == KEYEV_TOUCH_UP:
+                touch_up = e
+            elif e.type == KEYEV_TOUCH_DRAG: # Some envs might emit this
+                current_touch = e
+
+        # Also look for simulated drag via repeatedly polled DOWN events if native drag not available
+        if not current_touch and touch_down:
+            current_touch = touch_down
+            
+        # 1. Start Touch
+        if touch_down and not self.is_dragging and self.touch_start_time == 0:
+            if self.x <= touch_down.x < self.x + self.w and self.y <= touch_down.y < self.y + self.h:
+                self.touch_start_y = touch_down.y
+                self.touch_start_time = now
+                
+                # Determine which item was touched initially
+                local_y = touch_down.y - self.y + self.scroll_y
+                self.touch_initial_item_idx = self.get_index_at(local_y)
+                
+                # Anchor drag to the item under finger if valid, else selection
+                if self.touch_initial_item_idx != -1:
+                    self.touch_start_idx = self.touch_initial_item_idx
+                    # Immediate visual feedback
+                    if 0 <= self.touch_initial_item_idx < len(self.items):
+                        if self.items[self.touch_initial_item_idx].get('type') != 'section':
+                            self.selected_index = self.touch_initial_item_idx
+                            self.ensure_visible()
+                else:
+                    self.touch_start_idx = self.selected_index
+                
+                self.is_dragging = False
+                self.long_press_triggered = False
+                self.touch_acc_y = 0.0
+
+        # Long Press Detection (Time-based)
+        if self.touch_start_time != 0 and not self.is_dragging and not self.long_press_triggered:
+            if now - self.touch_start_time > 0.8: # 800ms threshold
+                self.long_press_triggered = True
+                # Return 'long' action immediately
+                idx = self.selected_index
+                if 0 <= idx < len(self.items):
+                    return ('long', idx, self.items[idx])
+
+        # ... Or use the last known touch if we are already in a touch sequence
+        # We need a way to know "current finger position" even if no new event came this frame, 
+        # but typically we get continuous events. If we don't, we can't drag.
+        
+        # 2. Touch Move / Drag
+        if self.touch_start_time != 0:
+             # Find the most recent position event
+             last_pos = current_touch if current_touch else touch_down
+             
+             if last_pos:
+                dy = last_pos.y - self.touch_start_y
+                
+                # Check for drag threshold
+                # User req: "If the drag is more than one item height, then apply scrolling"
+                if not self.is_dragging:
+                    if abs(dy) > self.base_row_h: # Threshold is one item height
+                        self.is_dragging = True
+                        self.long_press_triggered = True
+                
+                if self.is_dragging:
+                    # Scroll Logic (Snap)
+                    # Dragging UP (negative dy) -> Move down in list
+                    
+                    # More advanced "Pixel-based" mapping to index
+                    # We map the total pixel offset (start_y + scroll_y_offset - dy) to an index
+                    # This allows variable row heights natural feeling
+                    
+                    # 1. Calculate theoretical pixel position
+                    # We want to move the "originally selected item" by -dy pixels relative to the view center?
+                    # Or simpler: The "selection cursor" moves by -dy pixels.
+                    
+                    # Current selection top in pixels
+                    if 0 <= self.touch_start_idx < len(self.items):
+                        start_item_y = self.items[self.touch_start_idx]['_y']
+                        
+                        # Target Y for the selection top
+                        target_y = start_item_y - dy
+                        
+                        # Find index at target_y
+                        # Wescan items to find which one contains target_y
+                        # But to fix the "clamping" issue with sections:
+                        # If the index found is a section, or we are crossing a section...
+                        
+                        found_idx = -1
+                        for i, it in enumerate(self.items):
+                            if it['_y'] <= target_y < it['_y'] + it['_h']:
+                                found_idx = i
+                                break
+                        
+                        if found_idx == -1:
+                           if target_y < 0: found_idx = 0
+                           else: found_idx = len(self.items) - 1
+                        
+                        # Apply Clamping Logic:
+                        # If found_idx is a SECTION, we check where in the section we are.
+                        # User wants: "consider the selection to enter the next section first item 
+                        # only when the scroll amount is above the title height."
+                        
+                        # Implementation interpretation: 
+                        # If we land on a section header (found_idx is Section),
+                        # we should STAY on the *previous* item unless we are past the section header?
+                        # Or STAY on the section header (But sections aren't selectable...)?
+                        # "Selectable" logic usually skips sections.
+                        
+                        # Refined logic: Drag maps to a pixel Y. That pixel Y lands on an item.
+                        # If it lands on a Section:
+                        #   If we came from above (moving down), we need to drag PAST the section entirely to select the item below it.
+                        #   If we came from below (moving up), we need to drag ABOVE the section entirely to select item above.
+                        
+                        # Effectively, the "active area" for the section header does not trigger selection change until passed?
+                        # Let's try: if match is section, map to previous valid item if (target_y < section_center) else next valid item?
+                        # User said: "only when the scroll amount is above the title height"
+                        
+                        if self.items[found_idx].get('type') == 'section':
+                             # We are hovering over a section
+                             # Check overlap
+                             sec_y = self.items[found_idx]['_y']
+                             sec_h = self.items[found_idx]['_h']
+                             overlap = target_y - sec_y
+                             
+                             # If we are dragging DOWN (dy < 0, target_y increasing), we are moving to next section
+                             if dy < 0: 
+                                 # We are moving down the list.
+                                 # Only jump to next item if we are really deep into the section or past it?
+                                 # Actually, if we are conceptually "dragging the paper", moving finger UP (negative dy) 
+                                 # means we want to see lower items.
+                                 pass
+                             
+                             # Logic: 
+                             # If we land on section, look at adjacent items.
+                             # If we are closer to the top of section, pick item above.
+                             # If we are closer to bottom, pick item below.
+                             # "Glitch: separator ... flicker between the two voices"
+                             
+                             # Let's enforce a "dead zone" corresponding to the section height.
+                             # If target_y falls within a section's vertical space, keep the selection 
+                             # on the *previously selected item* (from start of drag or previous frame)
+                             # UNLESS we have crossed it?
+                             
+                             # Simpler: Don't select the section. Select the adjacent valid item based on direction, 
+                             # BUT require the "target_y" to be fully into the valid item's space.
+                             
+                             # If target_y is in section -> Don't change selection from what it would be if we were at the edge?
+                             
+                             if self.selected_index < found_idx:
+                                  # We were above, moving down.
+                                  # Stay above until we are purely past the section?
+                                  # effectively, for the section to be skipped, target_y must be >= sec_y + sec_h
+                                  # But found_idx says we are < sec_y + sec_h.
+                                  # So stay at found_idx - 1 (or whatever was valid above)
+                                  final_idx = found_idx - 1
+                             else:
+                                  # We were below, moving up.
+                                  # Stay below until target_y < sec_y
+                                  final_idx = found_idx + 1
+                             
+                             # Boundary checks
+                             final_idx = max(0, min(len(self.items)-1, final_idx))
+                        
+                        else:
+                             final_idx = found_idx
+
+                        if 0 <= final_idx < len(self.items) and self.items[final_idx].get('type') != 'section':
+                            self.selected_index = final_idx
+                            self.ensure_visible()
+
+        # 3. Touch Release
+        if touch_up:
+            if self.touch_start_time != 0:
+                # Valid release sequence
+                ret = None
+                
+                if not self.is_dragging and not self.long_press_triggered:
+                    # Click Candidate
+                    local_y = touch_up.y - self.y + self.scroll_y
+                    release_idx = self.get_index_at(local_y)
+                    
+                    # Logic: If release is on same item as start, it's a click.
+                    if release_idx == self.touch_initial_item_idx and release_idx >= 0:
+                         if self.items[release_idx].get('type') != 'section':
+                             # Ensure selection updates to the clicked item
+                             self.selected_index = release_idx
+                             self.ensure_visible()
+                             ret = ('click', release_idx, self.items[release_idx])
+                
+                # Reset
+                self.touch_start_time = 0
+                self.is_dragging = False
+                return ret
+                
+            # If touch_up happened but we weren't tracking, ignore it (stray event)
+
+        # 4. Long Press
+        if self.touch_start_time != 0 and not self.is_dragging and not self.long_press_triggered:
+            if now - self.touch_start_time > self.long_press_delay:
+                self.long_press_triggered = True
+                # Trigger on current selection or initial?
+                # Usually initial item
+                if 0 <= self.touch_initial_item_idx < len(self.items):
+                     it = self.items[self.touch_initial_item_idx]
+                     if it.get('type') != 'section':
+                         self.selected_index = self.touch_initial_item_idx
+                         return ('long', self.touch_initial_item_idx, it)
+
+        # 5. Keys
+        for e in events:
+            if e.type == KEYEV_DOWN or (e.type == KEYEV_HOLD and e.key in [KEY_UP, KEY_DOWN]): 
+                if e.key == KEY_UP:
+                    self.select_next(self.selected_index - 1, -1)
+                elif e.key == KEY_DOWN:
+                    self.select_next(self.selected_index + 1, 1)
+                elif e.key == KEY_EXE:
+                    if self.selected_index >= 0:
+                        return ('click', self.selected_index, self.items[self.selected_index])
+        
+        return None
+
+    def get_index_at(self, y):
+        # Linear scan is sufficient for likely list sizes (<500)
+        # Binary search could be used since _y is sorted
+        for i, it in enumerate(self.items):
+            if it['_y'] <= y < it['_y'] + it['_h']:
+                return i
+        return -1
+
+    def draw_item(self, x, y, item, is_selected):
+        # Can be overridden by subclass or assigned
+        t = self.theme
+        h = item['_h']
+        
+        if item.get('type') == 'section':
+            drect(x, y, x + self.w, y + h, t['key_spec'])
+            drect_border(x, y, x + self.w, y + h, C_NONE, 1, t['key_spec'])
+            dtext_opt(x + 10, y + h//2, t['txt_dim'], C_NONE, DTEXT_LEFT, DTEXT_MIDDLE, str(item['text']), -1)
+        else:
+            bg = t['hl'] if is_selected else t['modal_bg']
+            drect(x, y, x + self.w, y + h, bg)
+            drect_border(x, y, x + self.w, y + h, C_NONE, 1, t['key_spec'])
+            
+            x_off = 20
+            if item.get('checked'):
+                self.draw_check(x + 10, y + (h-20)//2, t)
+                x_off = 40
+                
+            dtext_opt(x + x_off, y + h//2, t['txt'], C_NONE, DTEXT_LEFT, DTEXT_MIDDLE, str(item['text']), -1)
+            
+            # Draw Arrow if requested
+            if item.get('arrow'):
+                 ar_x = x + self.w - 15
+                 ar_y = y + h//2
+                 c = t['txt_dim']
+                 dline(ar_x - 4, ar_y - 4, ar_x, ar_y, c)
+                 dline(ar_x - 4, ar_y + 4, ar_x, ar_y, c)
+
+    def draw(self):
+        t = self.theme
+        drect(self.x, self.y, self.x + self.w, self.y + self.h, t['modal_bg'])
+        
+        # Lazy Rendering: Find start index
+        start_y = self.scroll_y
+        end_y = self.scroll_y + self.h
+        
+        # Simple scan to find start (optimize later if needed)
+        start_idx = 0
+        for i, it in enumerate(self.items):
+            if it['_y'] + it['_h'] > start_y:
+                start_idx = i
+                break
+                
+        # Draw visible items
+        for i in range(start_idx, len(self.items)):
+            it = self.items[i]
+            if it['_y'] >= end_y: break # Stop if below view
+            
+            item_y = self.y + it['_y'] - self.scroll_y
+            self.draw_item(self.x, item_y, it, (i == self.selected_index))
+
+        # Scrollbar
+        if self.max_scroll > 0:
+            sb_w = 4
+            ratio = self.h / (self.total_h if self.total_h > 0 else 1)
+            thumb_h = max(20, int(self.h * ratio))
+            
+            scroll_ratio = self.scroll_y / self.max_scroll
+            thumb_y = self.y + int(scroll_ratio * (self.h - thumb_h))
+            
+            sb_x = self.x + self.w - sb_w - 2
+            drect(sb_x, thumb_y, sb_x + sb_w, thumb_y + thumb_h, t['accent'])
+
+    def draw_check(self, x, y, t):
+        drect(x, y, x+20, y+20, t['accent'])
+        c = t['check']
+        dline(x+4, y+10, x+8, y+14, c)
+        dline(x+8, y+14, x+15, y+5, c)
 
 # =============================================================================
 # KEYBOARD WIDGET
@@ -294,22 +708,34 @@ class Keyboard:
 # =============================================================================
 
 class ListPicker:
-    def __init__(self, options, prompt="Select:", theme="light", multi=False):
+    def __init__(self, options, prompt="Select:", theme="light", multi=False, touch_mode=KEYEV_TOUCH_DOWN):
         self.options = options
         self.prompt = prompt
+        self.theme_name = theme if isinstance(theme, str) else 'light'
         self.theme: dict = get_theme(theme)
         self.multi = multi
+        self.touch_mode = touch_mode
         self.selected_indices = set() if multi else {0}
-        self.cursor_idx = 0
-        self.page_start = 0
         
         self.header_h = PICK_HEADER_H
         self.footer_h = PICK_FOOTER_H
-        self.item_h = PICK_ITEM_H
         self.view_h = SCREEN_H - self.header_h - self.footer_h
-        self.items_per_page = self.view_h // self.item_h
         self.btn_w = 60
         self.last_action = None
+        
+        # Initialize ListView
+        # Convert options to dicts if needed, or ListView handles strings
+        # We need to inject 'checked' state for multi-select
+        self.lv_items = []
+        for i, opt in enumerate(options):
+            it = {'text': str(opt), 'type': 'item', 'idx': i}
+            if multi and i in self.selected_indices: it['checked'] = True
+            self.lv_items.append(it)
+
+        rect = (0, self.header_h, SCREEN_W, self.view_h)
+        self.list_view = ListView(rect, self.lv_items, row_h=PICK_ITEM_H, theme=self.theme_name)
+        if not multi and len(self.lv_items) > 0:
+            self.list_view.selected_index = 0
 
     def draw_nav_btn(self, x, w, h, type, is_pressed):
         t = self.theme
@@ -326,30 +752,10 @@ class ListPicker:
             dpoly([cx, cy-5, cx-5, cy+5, cx+5, cy+5], col, C_NONE)
         elif type == "DOWN":
             dpoly([cx, cy+5, cx-5, cy-5, cx+5, cy-5], col, C_NONE)
-
-    def draw_checkbox(self, x, y, checked):
-        t = self.theme
-        sz = 20
-        
-        # Material style
-        if checked:
-            drect(x, y, x + sz, y + sz, t['accent'])
-            # White checkmark
-            c = t['check']
-            dline(x+4, y+10, x+8, y+14, c)
-            dline(x+8, y+14, x+15, y+5, c)
-            # Thicken
-            dline(x+4, y+11, x+8, y+15, c)
-            dline(x+8, y+15, x+15, y+6, c)
-        else:
-            # Empty box with text color border
-            drect_border(x, y, x + sz, y + sz, C_NONE, 2, t['txt'])
-
+            
     def draw_close_icon(self, x, y, sz, col):
-        # Draw X
         dline(x, y, x+sz, y+sz, col)
         dline(x, y+sz, x+sz, y, col)
-        # Thicken
         dline(x+1, y, x+sz+1, y+sz, col)
         dline(x+1, y+sz, x+sz+1, y, col)
 
@@ -357,73 +763,31 @@ class ListPicker:
         t = self.theme
         dclear(t['modal_bg'])
         
+        # ListView (Draw first so Header/Footer cover any spill)
+        # Sync multi-select checkmarks
+        if self.multi:
+            for it in self.list_view.items:
+                it['checked'] = (it['idx'] in self.selected_indices)
+        
+        self.list_view.draw()
+        
         # Header
         drect(0, 0, SCREEN_W, self.header_h, t['accent'])
         dtext_opt(SCREEN_W//2, self.header_h//2, t['txt_acc'], C_NONE, DTEXT_CENTER, DTEXT_MIDDLE, self.prompt, -1)
-        
-        # Close Button (Top Left) - Hitbox: 0-40, 0-HEADER_H
         self.draw_close_icon(15, 15, 10, t['txt_acc'])
-        
-        # List Area
-        visible_end = min(len(self.options), self.page_start + self.items_per_page)
-        y_start = self.header_h
-        
-        for i in range(self.page_start, visible_end):
-            y = y_start + (i - self.page_start) * self.item_h
-            
-            is_cursor = (i == self.cursor_idx)
-            is_checked = i in self.selected_indices
-            
-            # Selection Background -> Secondary Color
-            bg = t['key_spec'] if is_cursor else t['modal_bg']
-            txt_col = t['txt'] # Always text color for readability in list
-            
-            drect(0, y, SCREEN_W, y + self.item_h, bg)
-            # Row Border -> Secondary Color
-            drect_border(0, y, SCREEN_W, y + self.item_h, C_NONE, 1, t['key_spec'])
-            
-            x_txt = 20
-            if self.multi:
-                self.draw_checkbox(10, y + (self.item_h-20)//2, is_checked)
-                x_txt = 40
-            
-            # Draw Item Text
-            dtext_opt(x_txt, y + self.item_h//2, txt_col, C_NONE, DTEXT_LEFT, DTEXT_MIDDLE, str(self.options[i]), -1)
-
-        # Vertical Scrollbar (Android style: on the list view)
-        if len(self.options) > self.items_per_page:
-            sb_w = 4
-            sb_x = SCREEN_W - sb_w - 2
-            sb_y = self.header_h
-            sb_h = self.view_h
-            
-            # Thumb
-            thumb_h = max(20, int((self.items_per_page / len(self.options)) * sb_h))
-            scroll_pct = self.page_start / max(1, len(self.options) - self.items_per_page)
-            scroll_pct = min(1.0, max(0.0, scroll_pct))
-            
-            thumb_y = sb_y + int(scroll_pct * (sb_h - thumb_h))
-            
-            # Draw Thumb (Accent color)
-            drect(sb_x, thumb_y, sb_x + sb_w, thumb_y + thumb_h, t['accent'])
 
         # Footer
         fy = SCREEN_H - self.footer_h
         drect(0, fy, SCREEN_W, SCREEN_H, t['key_spec'])
-        dhline(fy, t['key_spec']) # Seamless
+        dhline(fy, t['key_spec']) 
         
-        # Page Up (Left)
         self.draw_nav_btn(0, self.btn_w, self.footer_h, "UP", self.last_action == "PAGE_UP")
-        
-        # Page Down (Right)
         self.draw_nav_btn(SCREEN_W - self.btn_w, self.btn_w, self.footer_h, "DOWN", self.last_action == "PAGE_DOWN")
         
-        # OK Button (Center)
         ok_pressed = (self.last_action == "OK")
         ok_bg = t['hl'] if ok_pressed else t['key_spec']
         ok_rect_x = self.btn_w
         ok_rect_w = SCREEN_W - 2 * self.btn_w
-        
         drect(ok_rect_x, fy, ok_rect_x + ok_rect_w, SCREEN_H, ok_bg)
         drect_border(ok_rect_x, fy, ok_rect_x + ok_rect_w, SCREEN_H, C_NONE, 1, t['key_spec'])
         
@@ -431,111 +795,146 @@ class ListPicker:
         dtext_opt(SCREEN_W//2, fy + self.footer_h//2, t['txt'], C_NONE, DTEXT_CENTER, DTEXT_MIDDLE, label, -1)
 
     def run(self):
-        # We need a small cooldown state to prevent one tap from registering multiple times
-        # on the next frame loop if touch is still held.
-        # Simple latch: wait for TOUCH_UP before accepting next TOUCH_DOWN for clicks.
+        # Clear any lingering events
+        clearevents()
+        cleareventflips()
+        
         touch_latched = False
         
         while True:
             self.draw()
             dupdate()
-            
-            # Important: Clear flips to track new physical key presses correctly
             cleareventflips()
             
-            # Poll all events
             ev = pollevent()
             events = []
             while ev.type != KEYEV_NONE:
                 events.append(ev)
                 ev = pollevent()
             
-            # 1. Handle Physical Keys (using keypressed for single-shot)
-            if keypressed(KEY_EXIT):
+            if keypressed(KEY_EXIT) or keypressed(KEY_DEL):
                 return None
-            if keypressed(KEY_EXE):
-                if self.multi:
-                    if self.cursor_idx in self.selected_indices: self.selected_indices.remove(self.cursor_idx)
-                    else: self.selected_indices.add(self.cursor_idx)
-                else:
-                    return self.options[self.cursor_idx]
             
-            # Navigation (Repeatable keys is fine here, or change to keypressed if too fast)
-            if keypressed(KEY_UP): self.cursor_idx = max(0, self.cursor_idx - 1)
-            elif keypressed(KEY_DOWN): self.cursor_idx = min(len(self.options) - 1, self.cursor_idx + 1)
-            elif keypressed(KEY_LEFT): self.cursor_idx = max(0, self.cursor_idx - self.items_per_page)
-            elif keypressed(KEY_RIGHT): self.cursor_idx = min(len(self.options) - 1, self.cursor_idx + self.items_per_page)
-
-            # 2. Handle Touch (Software Latch)
-            touch_event = None
+            # --- Footer / Nav Keys ---
+            key_pg_up = keypressed(KEY_LEFT) 
+            key_pg_dn = keypressed(KEY_RIGHT)
+            
+            # Pass events to ListView first
+            # We filter out touches that are in header/footer to prevent ListView from acting on them
+            lv_events = []
+            footer_touch = None
+            header_touch = None
+            
             for e in events:
-                if e.type == KEYEV_TOUCH_UP:
-                    touch_latched = False
-                    self.last_action = None # Clear visual feedback
-                elif e.type == KEYEV_TOUCH_DOWN and not touch_latched:
-                    touch_latched = True
-                    touch_event = e
-            
-            if touch_event:
-                fy = SCREEN_H - self.footer_h
-                # Header check (Close)
-                if touch_event.y < self.header_h:
-                    if touch_event.x < 40:
-                        return None # Close menu
-                
-                # Footer check
-                elif touch_event.y >= fy:
-                    if touch_event.x < self.btn_w:
-                        self.last_action = "PAGE_UP"
-                        self.cursor_idx = max(0, self.cursor_idx - self.items_per_page)
-                    elif touch_event.x > SCREEN_W - self.btn_w:
-                        self.last_action = "PAGE_DOWN"
-                        self.cursor_idx = min(len(self.options) - 1, self.cursor_idx + self.items_per_page)
+                if e.type in [KEYEV_TOUCH_DOWN, KEYEV_TOUCH_UP, KEYEV_TOUCH_DRAG]:
+                    if e.y < self.header_h:
+                        if e.type == KEYEV_TOUCH_DOWN: header_touch = e # Capture down for header
+                        elif e.type == KEYEV_TOUCH_UP: header_touch = e
+                    elif e.y >= SCREEN_H - self.footer_h:
+                         if e.type == KEYEV_TOUCH_DOWN: footer_touch = e
+                         elif e.type == KEYEV_TOUCH_UP: footer_touch = e
                     else:
-                        self.last_action = "OK"
-                        if self.multi: return [self.options[i] for i in sorted(self.selected_indices)]
-                        else: return self.options[self.cursor_idx]
-                        
-                # List Item Interactions
-                elif self.header_h <= touch_event.y < fy:
-                    idx = self.page_start + (touch_event.y - self.header_h) // self.item_h
-                    if 0 <= idx < len(self.options):
-                        self.cursor_idx = idx
-                        if self.multi:
-                            if idx in self.selected_indices: self.selected_indices.remove(idx)
-                            else: self.selected_indices.add(idx)
-                        else: return self.options[idx]
+                        lv_events.append(e) # Pass to list view
+                else:
+                    lv_events.append(e) # Pass keys
+            
+            action = self.list_view.update(lv_events)
+            
+            if action:
+                type, idx, item = action
+                if type == 'click':
+                    if self.multi:
+                        real_idx = item['idx']
+                        if real_idx in self.selected_indices: self.selected_indices.remove(real_idx)
+                        else: self.selected_indices.add(real_idx)
+                    else:
+                        return self.options[item['idx']]
+
+            if key_pg_up:
+                self.list_view.scroll_y = max(0, self.list_view.scroll_y - self.list_view.h)
+                self.list_view.clamp_scroll()
+            if key_pg_dn:
+                self.list_view.scroll_y = min(self.list_view.max_scroll, self.list_view.scroll_y + self.list_view.h)
+                self.list_view.clamp_scroll()
+
+            # Handle Footer/Header Touches
+            # Check Latch for DOWN mode
+            ignore_action = (self.touch_mode == KEYEV_TOUCH_DOWN and touch_latched)
+            
+            # Header
+            if header_touch and header_touch.type == self.touch_mode:
+                 if not ignore_action and header_touch.x < 40:
+                     clearevents()
+                     cleareventflips()
+                     return None
+            
+            # Footer
+            if footer_touch:
+                 if footer_touch.type == self.touch_mode and not ignore_action:
+                     if footer_touch.x < self.btn_w: self.last_action = "PAGE_UP"
+                     elif footer_touch.x > SCREEN_W - self.btn_w: self.last_action = "PAGE_DOWN"
+                     else: self.last_action = "OK"
+                     
+                     if self.touch_mode == KEYEV_TOUCH_DOWN: touch_latched = True
+            
+            # Reset latch on any UP
+            for e in events:
+                if e.type == KEYEV_TOUCH_UP: touch_latched = False
+            
+            if self.last_action:
+                 if self.last_action == "PAGE_UP":
+                     self.list_view.scroll_y = max(0, self.list_view.scroll_y - self.list_view.h)
+                     self.list_view.clamp_scroll()
+                 elif self.last_action == "PAGE_DOWN":
+                     self.list_view.scroll_y = min(self.list_view.max_scroll, self.list_view.scroll_y + self.list_view.h)
+                     self.list_view.clamp_scroll()
+                 elif self.last_action == "OK":
+                     clearevents()
+                     cleareventflips()
+                     if self.multi: return [self.options[i] for i in sorted(self.selected_indices)]
+                     else: 
+                         if self.list_view.selected_index >= 0:
+                            return self.options[self.list_view.items[self.list_view.selected_index]['idx']]
+                 self.last_action = None
+
+            time.sleep(0.01)
 
             # Enforce scroll bounds after any input
-            if self.cursor_idx < self.page_start: self.page_start = self.cursor_idx
-            elif self.cursor_idx >= self.page_start + self.items_per_page: self.page_start = self.cursor_idx - self.items_per_page + 1
+            # if self.cursor_idx < self.page_start: self.page_start = self.cursor_idx
+            # elif self.cursor_idx >= self.page_start + self.items_per_page: self.page_start = self.cursor_idx - self.items_per_page + 1
             
             # Small sleep to prevent busy loop eating battery/CPU
             time.sleep(0.01)
+        
 
 # =============================================================================
 # PUBLIC FUNCTIONS
 # =============================================================================
 
-def input(prompt="Input:", type="text", theme="light", layout="qwerty"):
-    clearevents()
+
+def input(prompt="Input:", type="alpha_numeric", theme="light", layout="qwerty", touch_mode=KEYEV_TOUCH_DOWN):
+    # Re-implementing input function since it seems missing or was overwritten
     t = get_theme(theme)
-    enable_tabs = True
+    clearevents()
+    cleareventflips()
+    
+    # Kbd config
     start_tab = 0
+    enable_tabs = True
     numpad_opts = None
-    if "numeric" in type:
+
+    if type.startswith("numeric_"):
         enable_tabs = False
         allow_float = "int" not in type 
         allow_neg = "negative" in type
         numpad_opts = {'float': allow_float, 'neg': allow_neg}
     elif type == "math": start_tab = 2
-    kbd = Keyboard(default_tab=start_tab, enable_tabs=enable_tabs, numpad_opts=numpad_opts, theme=t, layout=layout)
+
+    kbd = Keyboard(default_tab=start_tab, enable_tabs=enable_tabs, numpad_opts=numpad_opts, theme=theme, layout=layout)
     text = ""
     running = True
-    
-    # Touch latch state
     touch_latched = False
-    
+
     while running:
         dclear(t['modal_bg'])
         
@@ -543,8 +942,7 @@ def input(prompt="Input:", type="text", theme="light", layout="qwerty"):
         drect(0, 0, SCREEN_W, PICK_HEADER_H, t['accent'])
         dtext_opt(SCREEN_W//2, PICK_HEADER_H//2, t['txt_acc'], C_NONE, DTEXT_CENTER, DTEXT_MIDDLE, prompt, -1)
         
-        # Close Button (Top Left) - Reuse drawing logic from picker would be better but let's inline for simplicity
-        # Hitbox: 0-40, 0-HEADER_H
+        # Close Button
         dline(15, 15, 25, 25, t['txt_acc'])
         dline(25, 15, 15, 25, t['txt_acc'])
         dline(16, 15, 26, 25, t['txt_acc'])
@@ -552,65 +950,72 @@ def input(prompt="Input:", type="text", theme="light", layout="qwerty"):
         
         # Input Box
         box_y = 60; box_h = 40
-        drect_border(10, box_y, SCREEN_W - 10, box_y + box_h, C_WHITE, 2, t['txt'])
-        dtext(15, box_y + 10, C_BLACK, text + "_")
+        drect_border(10, box_y, SCREEN_W - 10, box_y + box_h, t['hl'], 2, t['txt'])
+        dtext(15, box_y + 10, t['txt'], text + "_")
         
         kbd.draw()
         dupdate()
-        
-        # New Input Handling Loop
         cleareventflips()
         
-        # 1. Process Physical Keys (Single Shot)
-        if keypressed(KEY_EXIT): return None 
-        if keypressed(KEY_EXE): return text
-        
-        # Backspace repeater logic for physical key (optional, can just use pressed)
-        if keypressed(KEY_DEL): text = text[:-1]
-
-        # 2. Process Events
         ev = pollevent()
         events = []
         while ev.type != KEYEV_NONE:
             events.append(ev)
             ev = pollevent()
             
+        # Physical Keys
+        if keypressed(KEY_EXIT): return None
+        if keypressed(KEY_EXE): return text
+        if keypressed(KEY_DEL) and len(text) > 0: text = text[:-1]
+        
+        # Touch & Virtual Kbd
         for e in events:
-            # Touch Latch Logic
+            # Latch Reset
             if e.type == KEYEV_TOUCH_UP:
                 touch_latched = False
-                kbd.last_key = None # Clear visual press on release
+                kbd.last_key = None
             
-            elif e.type == KEYEV_TOUCH_DOWN and not touch_latched:
-                touch_latched = True
-                
-                # Check for Close Button in Header
+            # Close Button (Respect touch_mode)
+            should_close = (e.type == touch_mode)
+            if touch_mode == KEYEV_TOUCH_DOWN and touch_latched: should_close = False
+            
+            if should_close and e.y < PICK_HEADER_H and e.x < 40:
+                clearevents()
+                cleareventflips()
+                return None
+            
+            # Keyboard (Touch Down Only)
+            if e.type == KEYEV_TOUCH_DOWN and not touch_latched:
+                # Don't type if touching close button area
                 if e.y < PICK_HEADER_H and e.x < 40:
-                    return None
-                
-                res = kbd.update(e)
-                if res:
-                    if res == "ENTER": running = False
-                    elif res == "BACKSPACE": text = text[:-1]
-                    elif res == "CAPS": pass
-                    elif len(res) == 1: text += res
+                    pass 
+                else:
+                    touch_latched = True
+                    res = kbd.update(e)
+                    if res:
+                        if res == "ENTER": 
+                            clearevents()
+                            cleareventflips()
+                            return text
+                        elif res == "BACKSPACE": text = text[:-1]
+                        elif len(res) == 1: text += res
         
         time.sleep(0.01)
-        
     return text
 
-def pick(options, prompt="Select:", theme="light", multi=False):
-    picker = ListPicker(options, prompt, theme, multi)
+
+def pick(options, prompt="Select:", theme="light", multi=False, touch_mode=KEYEV_TOUCH_DOWN):
+    picker = ListPicker(options, prompt, theme, multi, touch_mode=touch_mode)
     return picker.run()
 
 class ConfirmationDialog:
-    def __init__(self, title, body, ok_text="OK", cancel_text="Cancel", theme="light"):
+    def __init__(self, title, body, ok_text="OK", cancel_text="Cancel", theme="light", touch_mode=KEYEV_TOUCH_DOWN):
         self.title = title
         self.body = body
         self.ok_text = ok_text
         self.cancel_text = cancel_text
         self.theme = get_theme(theme)
-        
+        self.touch_mode = touch_mode
         self.header_h = 40
         self.footer_h = 45
         self.btn_w = SCREEN_W // 2
@@ -640,6 +1045,9 @@ class ConfirmationDialog:
         self.draw_btn(self.btn_w, fy, self.btn_w, self.footer_h, self.ok_text, btn_ok_pressed)
 
     def run(self):
+        clearevents()
+        cleareventflips()
+        
         touch_latched = False
         btn_ok_pressed = False
         btn_cn_pressed = False
@@ -673,21 +1081,29 @@ class ConfirmationDialog:
                 tx, ty = touch.x, touch.y
                 fy = SCREEN_H - self.footer_h
                 
-                if ty >= fy:
-                    if tx < self.btn_w: # Cancel
-                        if touch.type == KEYEV_TOUCH_DOWN: btn_cn_pressed = True
-                        elif touch.type == KEYEV_TOUCH_UP and btn_cn_pressed: return False
-                    else: # OK
-                        if touch.type == KEYEV_TOUCH_DOWN: btn_ok_pressed = True
-                        elif touch.type == KEYEV_TOUCH_UP and btn_ok_pressed: return True
+                is_cancel = (ty >= fy and tx < self.btn_w)
+                is_ok = (ty >= fy and tx >= self.btn_w)
                 
-                # Clear presses if touch moves out or ends
+                if touch.type == KEYEV_TOUCH_DOWN:
+                    if is_cancel: btn_cn_pressed = True
+                    elif is_ok: btn_ok_pressed = True
+                
+                if touch.type == self.touch_mode:
+                    if is_cancel: 
+                        clearevents()
+                        cleareventflips()
+                        return False
+                    elif is_ok: 
+                        clearevents()
+                        cleareventflips()
+                        return True
+                
                 if touch.type == KEYEV_TOUCH_UP:
                     btn_cn_pressed = False
                     btn_ok_pressed = False
             
             time.sleep(0.01)
 
-def ask(title, body, ok_text="OK", cancel_text="Cancel", theme="light"):
-    dlg = ConfirmationDialog(title, body, ok_text, cancel_text, theme)
+def ask(title, body, ok_text="OK", cancel_text="Cancel", theme="light", touch_mode=KEYEV_TOUCH_DOWN):
+    dlg = ConfirmationDialog(title, body, ok_text, cancel_text, theme, touch_mode=touch_mode)
     return dlg.run()
