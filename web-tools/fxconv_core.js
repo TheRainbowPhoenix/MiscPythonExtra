@@ -105,36 +105,64 @@ function trim(img, width, height) {
 }
 
 
-function convert_topti(imageWrapper, params) {
+function convert_topti(input, params) {
     // 1. Charset
     if (!params.charset) {
         throw new Error("'charset' attribute is required and missing");
     }
     const charsetName = params.charset;
-    const blocks = FX_CHARSETS[charsetName];
-    if (!blocks) {
-        throw new Error(`unknown character set '${charsetName}'`);
-    }
 
-    // Calculate total glyph count from blocks
-    const glyphCount = blocks.reduce((acc, [start, len]) => acc + len, 0);
+    let blocks = [];
+    let inputs = [];
+    let glyphCount = 0;
 
-    // 2. Grid & Area
     const grid = new Grid(params.grid || {});
-    const area = new Area(params.area || {}, imageWrapper.width, imageWrapper.height);
 
-    // Crop imageWrapper concept (logical crop)
-    const croppedImage = {
-        width: area.w,
-        height: area.h,
-        isBlack: (x, y) => imageWrapper.isBlack(area.x + x, area.y + y),
-        isWhite: (x, y) => imageWrapper.isWhite(area.x + x, area.y + y)
-    };
+    if (charsetName === 'unicode') {
+        // Multi-image/block mode
+        // input must be array of { start: number, image: imageWrapper }
+        if (!Array.isArray(input)) {
+            throw new Error("For 'unicode' charset, input must be an array of blocks.");
+        }
 
-    // Check grid size
-    const gridSize = grid.size(croppedImage.width, croppedImage.height);
-    if (glyphCount > gridSize) {
-        throw new Error(`not enough elements in grid (got ${gridSize}, need ${glyphCount} for '${charsetName}')`);
+        // Sort by start code
+        input.sort((a, b) => a.start - b.start);
+
+        for (const item of input) {
+            const img = item.image;
+            const start = item.start;
+            const size = grid.size(img.width, img.height);
+            blocks.push([start, size]);
+            inputs.push(img);
+            glyphCount += size;
+        }
+    } else {
+        // Single image mode
+        blocks = FX_CHARSETS[charsetName];
+        if (!blocks) {
+            throw new Error(`unknown character set '${charsetName}'`);
+        }
+        // Calculate total glyph count from blocks
+        glyphCount = blocks.reduce((acc, [start, len]) => acc + len, 0);
+
+        const imageWrapper = input; // assume single wrapper
+        const area = new Area(params.area || {}, imageWrapper.width, imageWrapper.height);
+
+        // Crop imageWrapper concept (logical crop)
+        const croppedImage = {
+            width: area.w,
+            height: area.h,
+            isBlack: (x, y) => imageWrapper.isBlack(area.x + x, area.y + y),
+            isWhite: (x, y) => imageWrapper.isWhite(area.x + x, area.y + y)
+        };
+
+        inputs.push(croppedImage);
+
+        // Check grid size
+        const gridSize = grid.size(croppedImage.width, croppedImage.height);
+        if (glyphCount > gridSize) {
+            throw new Error(`not enough elements in grid (got ${gridSize}, need ${glyphCount} for '${charsetName}')`);
+        }
     }
 
     // 3. Proportionality & Flags
@@ -182,76 +210,66 @@ function convert_topti(imageWrapper, params) {
     let dataWidth = []; // for proportional
     let dataIndex = []; // for proportional
 
-    let totalGlyphsBytes = 0; // Length in bytes of dataGlyphs so far
+    let glyphIndex = 0; // Total glyph counter for indexing logic (number in fxconv)
 
-    let glyphIndex = 0; // Current glyph index being processed
+    for (const img of inputs) {
+        // Iterate grid for this input image
+        const iter = grid.iter(img.width, img.height);
 
-    // Iterate grid
-    const iter = grid.iter(croppedImage.width, croppedImage.height);
-
-    for (const region of iter) {
-        // if (glyphIndex >= glyphCount) break; // fxconv.py processes all grid cells regardless of charset count
-
-        // Update index (every 8 glyphs)?
-        // fxconv.py: if not (number % 8): idx = total_glyphs // 4; data_index += u16(idx)
-        // number is the enumeration of grid.iter
-
-        if (glyphIndex % 8 === 0) {
-            // Index points to 32-bit words, so byte offset / 4
-            const idx = Math.floor(dataGlyphs.length / 4);
-            dataIndex.push(...u16(idx));
-        }
-
-        // Extract glyph
-        // Logical crop of the region from the croppedImage
-        let glyphX = region.x;
-        let glyphY = region.y;
-        let glyphW = region.w;
-        let glyphH = region.h;
-
-        // If proportional, trim
-        if (proportional) {
-            // Need a sub-image for trim function
-            const cellImage = {
-                width: glyphW,
-                height: glyphH,
-                isBlack: (x, y) => croppedImage.isBlack(glyphX + x, glyphY + y),
-                isWhite: (x, y) => croppedImage.isWhite(glyphX + x, glyphY + y)
-            };
-            const trimRect = trim(cellImage, glyphW, glyphH);
-            // Update glyph region to trimmed
-            glyphX += trimRect.x;
-            glyphW = trimRect.w;
-
-            dataWidth.push(glyphW);
-        }
-
-        // Encode bitmap
-        // storage_size = ((glyph.width * glyph.height + 31) >> 5)
-        // length = 4 * storage_size
-        const storageSize = (glyphW * glyphH + 31) >>> 5;
-        const length = 4 * storageSize;
-        const bits = new Uint8Array(length);
-        let offset = 0;
-
-        for (let y = 0; y < glyphH; y++) {
-            for (let x = 0; x < glyphW; x++) {
-                // croppedImage coordinates
-                const isBlack = croppedImage.isBlack(glyphX + x, glyphY + y);
-                if (isBlack) {
-                    // bits[offset >> 3] |= ((color * 0x80) >> (offset & 7))
-                    // color is 1
-                    bits[offset >> 3] |= (0x80 >>> (offset & 7));
-                }
-                offset++;
+        for (const region of iter) {
+            // Update index (every 8 glyphs) based on GLOBAL index
+            if (glyphIndex % 8 === 0) {
+                // Index points to 32-bit words, so byte offset / 4
+                const idx = Math.floor(dataGlyphs.length / 4);
+                dataIndex.push(...u16(idx));
             }
-        }
 
-        for (let b of bits) {
-            dataGlyphs.push(b);
-        }
+            // Extract glyph
+            let glyphX = region.x;
+            let glyphY = region.y;
+            let glyphW = region.w;
+            let glyphH = region.h;
 
-        glyphIndex++;
+            // If proportional, trim
+            if (proportional) {
+                // Need a sub-image for trim function
+                const cellImage = {
+                    width: glyphW,
+                    height: glyphH,
+                    isBlack: (x, y) => img.isBlack(glyphX + x, glyphY + y),
+                    isWhite: (x, y) => img.isWhite(glyphX + x, glyphY + y)
+                };
+                const trimRect = trim(cellImage, glyphW, glyphH);
+                // Update glyph region to trimmed
+                glyphX += trimRect.x;
+                glyphW = trimRect.w;
+
+                dataWidth.push(glyphW);
+            }
+
+            // Encode bitmap
+            const storageSize = (glyphW * glyphH + 31) >>> 5;
+            const length = 4 * storageSize;
+            const bits = new Uint8Array(length);
+            let offset = 0;
+
+            for (let y = 0; y < glyphH; y++) {
+                for (let x = 0; x < glyphW; x++) {
+                    // img coordinates
+                    const isBlack = img.isBlack(glyphX + x, glyphY + y);
+                    if (isBlack) {
+                        bits[offset >> 3] |= (0x80 >>> (offset & 7));
+                    }
+                    offset++;
+                }
+            }
+
+            for (let b of bits) {
+                dataGlyphs.push(b);
+            }
+
+            glyphIndex++;
+        }
     }
 
     // Fill remaining if needed? No, logic breaks when glyphCount reached.

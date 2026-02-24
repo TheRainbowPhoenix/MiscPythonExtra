@@ -168,6 +168,7 @@
                         <option value="alnum">alnum (A-Z, a-z, 0-9)</option>
                         <option value="ascii">ascii (0x00-0x7F)</option>
                         <option value="256chars">256chars (0x00-0xFF)</option>
+                    <option value="unicode">unicode (Auto-Detect)</option>
                     </select>
                 </div>
                 <div class="form-group checkbox-group" style="align-items: flex-end; padding-bottom: 10px;">
@@ -190,8 +191,8 @@
             <!-- MODE: CONVERT IMAGE -->
             <div id="controlsConvert">
                 <div class="form-group">
-                    <label for="inputFile">Input Image (PNG)</label>
-                    <input type="file" id="inputFile" accept="image/png, image/jpeg">
+                    <label for="inputFile">Input Image(s)</label>
+                    <input type="file" id="inputFile" accept="image/png, image/jpeg" multiple>
                 </div>
 
                 <div class="compact-grid">
@@ -330,21 +331,96 @@
 
         function convertFromImage() {
             const fileInput = document.getElementById('inputFile');
-            if (!fileInput.files || !fileInput.files[0]) {
-                alert("Please select an image file.");
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert("Please select image file(s).");
                 return;
             }
-            const file = fileInput.files[0];
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const img = new Image();
-                img.onload = function() {
-                    currentSourceImage = img;
-                    processConvertImage(img);
+
+            // Check for unicode mode
+            const charset = document.getElementById('charset').value;
+
+            if (charset === 'unicode') {
+                processUnicodeImages(fileInput.files);
+            } else {
+                // Single file mode
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        currentSourceImage = img;
+                        processConvertImage(img);
+                    };
+                    img.src = e.target.result;
                 };
-                img.src = e.target.result;
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function processUnicodeImages(fileList) {
+            const inputs = [];
+            const threshold = parseInt(document.getElementById('threshold').value);
+
+            // Regex to find U+XXXX
+            const re = /U\+([0-9A-Fa-f]+)/;
+
+            for (const file of fileList) {
+                const match = file.name.match(re);
+                if (!match) continue; // Skip non-matching files
+                const start = parseInt(match[1], 16);
+
+                const img = await loadImage(file);
+                const cvs = document.createElement('canvas');
+                cvs.width = img.width;
+                cvs.height = img.height;
+                const ctx = cvs.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const data = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
+                const wrapper = createWrapper(data, cvs.width, cvs.height, threshold);
+
+                inputs.push({ start: start, image: wrapper });
+            }
+
+            if (inputs.length === 0) {
+                alert("No valid U+XXXX files found.");
+                return;
+            }
+
+            const params = getCommonParams();
+            params.grid = {
+                width: document.getElementById('gridWidth').value,
+                height: document.getElementById('gridHeight').value,
+                padding: document.getElementById('gridPadding').value,
+                border: document.getElementById('gridBorder').value,
             };
-            reader.readAsDataURL(file);
+
+            try {
+                const output = window.fxconv.convert_topti(inputs, params);
+                document.getElementById('output').value = output;
+                document.getElementById('previewInfo').innerText = `Processed ${inputs.length} blocks.`;
+                // Preview? Maybe just the first one?
+                // Or clear canvas
+                const canvas = document.getElementById('canvas');
+                canvas.width = 300; canvas.height = 50;
+                const ctx = canvas.getContext('2d');
+                ctx.fillText("Unicode mode: multiple blocks processed", 10, 30);
+            } catch (err) {
+                alert("Error: " + err.message);
+                console.error(err);
+            }
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
         }
 
         function processConvertImage(img) {
@@ -377,18 +453,16 @@
                 destCanvas.width = canvas.width;
                 destCanvas.height = canvas.height;
                 const destCtx = destCanvas.getContext('2d');
-                destCtx.putImageData(imageData, 0, 0); // Show original (color) or thresholded?
-                // Ideally show thresholded result so user sees what the tool sees.
-                // Let's create a visual representation of the thresholded image.
+
+                // Visualization
                 const previewData = destCtx.createImageData(canvas.width, canvas.height);
                 for (let i = 0; i < data.length; i+=4) {
                     const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                    // In wrapper: isBlack if avg < threshold.
                     const val = avg < threshold ? 0 : 255;
                     previewData.data[i] = val;
                     previewData.data[i+1] = val;
                     previewData.data[i+2] = val;
-                    previewData.data[i+3] = 255; // Opaque
+                    previewData.data[i+3] = 255;
                 }
                 destCtx.putImageData(previewData, 0, 0);
 
@@ -403,7 +477,6 @@
 
         async function generateAndConvert() {
             const fontInput = document.getElementById('fontFile');
-            // Check if we have a file selected OR cached
             let file = fontInput.files && fontInput.files[0];
             if (!file && currentFontFile) file = currentFontFile;
 
@@ -419,31 +492,69 @@
             const threshold = parseInt(document.getElementById('threshold').value);
 
             try {
-                const result = await window.generateFontAtlas(file, fontSize, charset, padding, threshold);
+                if (charset === 'unicode') {
+                    // Multi-block generation
+                    const results = await window.generateUnicodeData(file, fontSize, padding, threshold);
 
-                const canvas = result.canvas;
-                const ctx = canvas.getContext('2d');
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imageData.data;
+                    const inputs = results.map(r => ({
+                        start: r.start,
+                        image: createWrapper(r.data, r.canvas.width, r.canvas.height, 128)
+                    }));
 
-                // For generated image, the data is already strictly B/W (0 or 255) based on threshold
-                // So the wrapper can use a simple check (e.g., < 128 is black).
-                const imageWrapper = createWrapper(data, canvas.width, canvas.height, 128);
+                    const params = getCommonParams();
+                    params.grid = results[0].grid; // Assume consistent grid
 
-                const params = getCommonParams();
-                params.grid = result.grid;
+                    const output = window.fxconv.convert_topti(inputs, params);
+                    document.getElementById('output').value = output;
 
-                const output = window.fxconv.convert_topti(imageWrapper, params);
+                    // Preview - Stacked?
+                    const destCanvas = document.getElementById('canvas');
+                    let totalH = 0;
+                    let maxW = 0;
+                    results.forEach(r => {
+                        totalH += r.canvas.height + 10;
+                        if (r.canvas.width > maxW) maxW = r.canvas.width;
+                    });
 
-                document.getElementById('output').value = output;
+                    destCanvas.width = maxW;
+                    destCanvas.height = totalH;
+                    const ctx = destCanvas.getContext('2d');
 
-                const destCanvas = document.getElementById('canvas');
-                destCanvas.width = canvas.width;
-                destCanvas.height = canvas.height;
-                const destCtx = destCanvas.getContext('2d');
-                destCtx.putImageData(imageData, 0, 0);
+                    let y = 0;
+                    results.forEach(r => {
+                        ctx.fillStyle = '#666';
+                        ctx.fillText(`Block U+${r.start.toString(16).toUpperCase()}`, 0, y + 10);
+                        ctx.drawImage(r.canvas, 0, y + 15);
+                        y += r.canvas.height + 25;
+                    });
 
-                updatePreviewInfo(canvas.width, canvas.height, params.grid);
+                    updatePreviewInfo(maxW, totalH, params.grid);
+
+                } else {
+                    // Standard single block
+                    const result = await window.generateFontAtlas(file, fontSize, charset, padding, threshold);
+
+                    const canvas = result.canvas;
+                    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+
+                    const imageWrapper = createWrapper(data, canvas.width, canvas.height, 128);
+
+                    const params = getCommonParams();
+                    params.grid = result.grid;
+
+                    const output = window.fxconv.convert_topti(imageWrapper, params);
+
+                    document.getElementById('output').value = output;
+
+                    const destCanvas = document.getElementById('canvas');
+                    destCanvas.width = canvas.width;
+                    destCanvas.height = canvas.height;
+                    const destCtx = destCanvas.getContext('2d');
+                    destCtx.putImageData(imageData, 0, 0);
+
+                    updatePreviewInfo(canvas.width, canvas.height, params.grid);
+                }
 
             } catch (err) {
                 alert("Generation Error: " + err.message);
