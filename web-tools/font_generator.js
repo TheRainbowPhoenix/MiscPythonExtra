@@ -1,7 +1,7 @@
 
 // We rely on fxconv_core.js for FX_CHARSETS
 
-async function generateFontAtlas(fontFile, fontSize, charsetName, padding = 0) {
+async function generateFontAtlas(fontFile, fontSize, charsetName, padding = 0, threshold = 128) {
     if (!fontFile) {
         throw new Error("No font file provided.");
     }
@@ -97,7 +97,10 @@ async function generateFontAtlas(fontFile, fontSize, charsetName, padding = 0) {
         const g = data[i+1];
         const b = data[i+2];
         const avg = (r + g + b) / 3;
-        const val = avg < 128 ? 0 : 255;
+        // The font rendering is black text on white background.
+        // So pixels with LOW average are black (text).
+        // If avg < threshold, it becomes black (0). Else white (255).
+        const val = avg < threshold ? 0 : 255;
         data[i] = val;
         data[i+1] = val;
         data[i+2] = val;

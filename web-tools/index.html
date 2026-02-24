@@ -5,136 +5,272 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>fxconv Web Tool</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        .form-group { margin-bottom: 10px; }
-        label { display: inline-block; width: 150px; vertical-align: top; }
-        textarea { width: 100%; height: 300px; font-family: monospace; }
-        #canvas { border: 1px solid #ccc; max-width: 100%; margin-top: 10px; }
+        :root {
+            --primary: #007bff;
+            --primary-dark: #0056b3;
+            --bg: #f8f9fa;
+            --text: #343a40;
+            --border: #dee2e6;
+            --white: #ffffff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; margin-bottom: 20px; }
+        h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; }
 
-        .mode-selector { margin-bottom: 20px; }
-        .mode-btn { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-        .mode-btn.active { background-color: #007bff; color: white; border-color: #0056b3; }
+        /* Layout */
+        .container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        @media (min-width: 900px) {
+            .container {
+                grid-template-columns: 350px 1fr;
+            }
+        }
 
-        .hidden { display: none; }
+        .panel {
+            background: var(--white);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            border: 1px solid var(--border);
+        }
 
-        .section { border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-        h2 { margin-top: 0; }
+        /* Form Elements */
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
+        input[type="text"], input[type="number"], select, input[type="file"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+        }
+        input[type="checkbox"] { margin-right: 8px; transform: scale(1.2); }
+        .checkbox-group { display: flex; align-items: center; }
+        .checkbox-group label { margin-bottom: 0; font-weight: normal; cursor: pointer; }
+
+        /* Range Slider */
+        .range-container { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex: 1; }
+        .range-value { font-family: monospace; min-width: 3ch; text-align: right; }
+
+        /* Buttons */
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+        button:hover { background-color: var(--primary-dark); }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        .btn-group { display: flex; gap: 10px; }
+        .btn-group button { flex: 1; }
+
+        /* Tabs */
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid var(--border); }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6c757d;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            flex: 1;
+            text-align: center;
+        }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        .hidden { display: none !important; }
+
+        /* Preview Area */
+        .preview-container {
+            border: 1px solid var(--border);
+            background: #eee; /* Checkerboard bg? */
+            background-image:
+                linear-gradient(45deg, #ddd 25%, transparent 25%),
+                linear-gradient(-45deg, #ddd 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #ddd 75%),
+                linear-gradient(-45deg, transparent 75%, #ddd 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            padding: 10px;
+            overflow: auto;
+            max-height: 400px;
+            text-align: center;
+            border-radius: 4px;
+        }
+        canvas {
+            image-rendering: pixelated; /* Sharp pixels */
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            background: white;
+            max-width: 100%;
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.85rem;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+
+        .compact-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
     </style>
 </head>
 <body>
     <h1>fxconv Web Tool</h1>
 
-    <div class="mode-selector">
-        <button id="btnModeConvert" class="mode-btn active" onclick="setMode('convert')">Convert Image</button>
-        <button id="btnModeGenerate" class="mode-btn" onclick="setMode('generate')">Generate from Font</button>
-    </div>
+    <div class="container">
+        <!-- LEFT PANEL: CONTROLS -->
+        <div class="panel">
+            <div class="tabs">
+                <div id="tabConvert" class="tab active" onclick="setMode('convert')">Image</div>
+                <div id="tabGenerate" class="tab" onclick="setMode('generate')">Font File</div>
+            </div>
 
-    <!-- Common Parameters -->
-    <div class="section">
-        <h2>Common Parameters</h2>
-        <div class="form-group">
-            <label for="name">Variable Name:</label>
-            <input type="text" id="name" value="my_font">
+            <!-- Global Params -->
+            <div class="form-group">
+                <label for="name">Variable Name</label>
+                <input type="text" id="name" value="my_font">
+            </div>
+
+            <div class="compact-grid">
+                <div class="form-group">
+                    <label for="charset">Charset</label>
+                    <select id="charset">
+                        <option value="print">print (ASCII 0x20-0x7E)</option>
+                        <option value="numeric">numeric (0-9)</option>
+                        <option value="upper">upper (A-Z)</option>
+                        <option value="alpha">alpha (A-Z, a-z)</option>
+                        <option value="alnum">alnum (A-Z, a-z, 0-9)</option>
+                        <option value="ascii">ascii (0x00-0x7F)</option>
+                        <option value="256chars">256chars (0x00-0xFF)</option>
+                    </select>
+                </div>
+                <div class="form-group checkbox-group" style="align-items: flex-end; padding-bottom: 10px;">
+                    <input type="checkbox" id="proportional" checked>
+                    <label for="proportional">Proportional</label>
+                </div>
+            </div>
+
+            <div class="compact-grid">
+                <div class="form-group">
+                    <label for="charSpacing">Spacing</label>
+                    <input type="number" id="charSpacing" value="1">
+                </div>
+                <div class="form-group">
+                    <label for="lineDistance">Line Dist</label>
+                    <input type="number" id="lineDistance" placeholder="Default">
+                </div>
+            </div>
+
+            <!-- MODE: CONVERT IMAGE -->
+            <div id="controlsConvert">
+                <div class="form-group">
+                    <label for="inputFile">Input Image (PNG)</label>
+                    <input type="file" id="inputFile" accept="image/png, image/jpeg">
+                </div>
+
+                <div class="compact-grid">
+                    <div class="form-group">
+                        <label for="gridWidth">Grid W</label>
+                        <input type="number" id="gridWidth" value="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="gridHeight">Grid H</label>
+                        <input type="number" id="gridHeight" value="8">
+                    </div>
+                </div>
+                <div class="compact-grid">
+                    <div class="form-group">
+                        <label for="gridPadding">Padding</label>
+                        <input type="number" id="gridPadding" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="gridBorder">Border</label>
+                        <input type="number" id="gridBorder" value="0">
+                    </div>
+                </div>
+
+                <button onclick="convertFromImage()">Process Image</button>
+            </div>
+
+            <!-- MODE: GENERATE FONT -->
+            <div id="controlsGenerate" class="hidden">
+                <div class="form-group">
+                    <label for="fontFile">Font File (TTF/OTF/WOFF)</label>
+                    <input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2">
+                </div>
+
+                <div class="compact-grid">
+                    <div class="form-group">
+                        <label for="fontSize">Size (px)</label>
+                        <input type="number" id="fontSize" value="16">
+                    </div>
+                    <div class="form-group">
+                        <label for="genPadding">Inner Pad</label>
+                        <input type="number" id="genPadding" value="0">
+                    </div>
+                </div>
+
+                <button onclick="generateAndConvert()">Generate Font</button>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label for="charset">Charset:</label>
-            <select id="charset">
-                <option value="print">print (ASCII 0x20-0x7E)</option>
-                <option value="numeric">numeric (0-9)</option>
-                <option value="upper">upper (A-Z)</option>
-                <option value="alpha">alpha (A-Z, a-z)</option>
-                <option value="alnum">alnum (A-Z, a-z, 0-9)</option>
-                <option value="ascii">ascii (0x00-0x7F)</option>
-                <option value="256chars">256chars (0x00-0xFF)</option>
-            </select>
-        </div>
+        <!-- RIGHT PANEL: PREVIEW & OUTPUT -->
+        <div class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2>Preview</h2>
+                <div style="font-size: 0.85rem; color: #666;" id="previewInfo">Not loaded</div>
+            </div>
 
-        <div class="form-group">
-            <label for="proportional">Proportional:</label>
-            <input type="checkbox" id="proportional" checked>
-        </div>
+            <!-- Threshold Control -->
+            <div class="form-group" style="background: #f1f3f5; padding: 10px; border-radius: 4px;">
+                <label for="threshold" style="display: flex; justify-content: space-between;">
+                    <span>B/W Threshold (No AA)</span>
+                    <span id="thresholdVal" class="range-value">128</span>
+                </label>
+                <div class="range-container">
+                    <span>0</span>
+                    <input type="range" id="threshold" min="0" max="255" value="128" oninput="updateThreshold(this.value)">
+                    <span>255</span>
+                </div>
+            </div>
 
-        <div class="form-group">
-            <label for="charSpacing">Char Spacing:</label>
-            <input type="number" id="charSpacing" value="1">
-        </div>
-
-        <div class="form-group">
-            <label for="lineDistance">Line Distance:</label>
-            <input type="number" id="lineDistance" value="" placeholder="Default: height + 1">
-        </div>
-    </div>
-
-    <!-- Convert Mode UI -->
-    <div id="sectionConvert" class="section">
-        <h2>Image Input</h2>
-        <div class="form-group">
-            <label for="inputFile">Font Image:</label>
-            <input type="file" id="inputFile" accept="image/png, image/jpeg">
-        </div>
-
-        <div class="form-group">
-            <label for="gridWidth">Grid Width:</label>
-            <input type="number" id="gridWidth" value="8">
-        </div>
-
-        <div class="form-group">
-            <label for="gridHeight">Grid Height:</label>
-            <input type="number" id="gridHeight" value="8">
-        </div>
-
-        <div class="form-group">
-            <label for="gridPadding">Grid Padding:</label>
-            <input type="number" id="gridPadding" value="0">
-        </div>
-
-        <div class="form-group">
-            <label for="gridBorder">Grid Border:</label>
-            <input type="number" id="gridBorder" value="0">
-        </div>
-
-        <button onclick="convertFromImage()">Convert Image</button>
-    </div>
-
-    <!-- Generate Mode UI -->
-    <div id="sectionGenerate" class="section hidden">
-        <h2>Font Input</h2>
-        <div class="form-group">
-            <label for="fontFile">Font File (.ttf/.otf):</label>
-            <input type="file" id="fontFile" accept=".ttf,.otf,.woff">
-        </div>
-
-        <div class="form-group">
-            <label for="fontSize">Font Size (px):</label>
-            <input type="number" id="fontSize" value="16">
-        </div>
-
-        <div class="form-group">
-            <label for="genPadding">Inner Padding:</label>
-            <input type="number" id="genPadding" value="0">
-        </div>
-
-        <button onclick="generateAndConvert()">Generate & Convert</button>
-    </div>
-
-    <h3>Output</h3>
-    <div class="form-group">
-        <button onclick="downloadPy()">Download .py</button>
-        <button onclick="downloadPng()">Download .png</button>
-    </div>
-
-    <div style="display: flex; gap: 20px;">
-        <div style="flex: 1;">
-            <h4>Python Code</h4>
-            <textarea id="output" readonly></textarea>
-        </div>
-        <div style="flex: 1;">
-            <h4>Preview</h4>
-            <div style="overflow: auto; border: 1px solid #ccc; max-height: 300px;">
+            <div class="preview-container">
                 <canvas id="canvas"></canvas>
             </div>
-            <div id="previewInfo" style="margin-top: 5px; font-size: 0.9em; color: #666;"></div>
+
+            <div class="btn-group" style="margin: 15px 0;">
+                <button class="btn-secondary" onclick="downloadPng()">Download Image</button>
+                <button class="btn-secondary" onclick="downloadPy()">Download Code</button>
+            </div>
+
+            <h2>Python Output</h2>
+            <textarea id="output" readonly></textarea>
         </div>
     </div>
 
@@ -142,18 +278,37 @@
     <script src="font_generator.js"></script>
     <script>
         let currentMode = 'convert';
-        let generatedGridParams = null; // Store grid params when generating
 
+        // Cache for current source data so we can re-process on threshold change
+        let currentSourceImage = null; // For 'convert' mode: Image object
+        let currentFontFile = null;    // For 'generate' mode: File object
+        let lastGeneratedResult = null; // To avoid re-generating font logic if only threshold changed? No, generateFontAtlas USES threshold.
+
+        // Setup UI
         function setMode(mode) {
             currentMode = mode;
-            document.getElementById('btnModeConvert').className = mode === 'convert' ? 'mode-btn active' : 'mode-btn';
-            document.getElementById('btnModeGenerate').className = mode === 'generate' ? 'mode-btn active' : 'mode-btn';
+            document.getElementById('tabConvert').className = mode === 'convert' ? 'tab active' : 'tab';
+            document.getElementById('tabGenerate').className = mode === 'generate' ? 'tab active' : 'tab';
 
-            document.getElementById('sectionConvert').className = mode === 'convert' ? 'section' : 'section hidden';
-            document.getElementById('sectionGenerate').className = mode === 'generate' ? 'section' : 'section hidden';
+            if (mode === 'convert') {
+                document.getElementById('controlsConvert').classList.remove('hidden');
+                document.getElementById('controlsGenerate').classList.add('hidden');
+            } else {
+                document.getElementById('controlsConvert').classList.add('hidden');
+                document.getElementById('controlsGenerate').classList.remove('hidden');
+            }
         }
 
-        // --- Common Helpers ---
+        function updateThreshold(val) {
+            document.getElementById('thresholdVal').innerText = val;
+            // Debounce or just trigger?
+            // If we have data, re-run
+            if (currentMode === 'convert' && currentSourceImage) {
+                processConvertImage(currentSourceImage);
+            } else if (currentMode === 'generate' && currentFontFile) {
+                generateAndConvert(); // Re-generate atlas with new threshold
+            }
+        }
 
         function getCommonParams() {
             const params = {
@@ -167,22 +322,8 @@
             return params;
         }
 
-        function displayResult(code, canvasSource) {
-            document.getElementById('output').value = code;
-
-            const destCanvas = document.getElementById('canvas');
-            // If canvasSource is already a canvas, copy it
-            if (canvasSource instanceof HTMLCanvasElement) {
-                destCanvas.width = canvasSource.width;
-                destCanvas.height = canvasSource.height;
-                const ctx = destCanvas.getContext('2d');
-                ctx.drawImage(canvasSource, 0, 0);
-            }
-        }
-
-        function updatePreviewInfo(width, height, gridParams) {
-             document.getElementById('previewInfo').innerText =
-                `Image Size: ${width}x${height} | Grid: ${gridParams.width}x${gridParams.height}`;
+        function updatePreviewInfo(w, h, grid) {
+            document.getElementById('previewInfo').innerText = `${w}x${h} • Grid: ${grid.width}x${grid.height}`;
         }
 
         // --- Convert Mode ---
@@ -193,13 +334,12 @@
                 alert("Please select an image file.");
                 return;
             }
-
             const file = fileInput.files[0];
             const reader = new FileReader();
-
             reader.onload = function(e) {
                 const img = new Image();
                 img.onload = function() {
+                    currentSourceImage = img;
                     processConvertImage(img);
                 };
                 img.src = e.target.result;
@@ -208,7 +348,7 @@
         }
 
         function processConvertImage(img) {
-            const canvas = document.createElement('canvas'); // Temp canvas
+            const canvas = document.createElement('canvas');
             canvas.width = img.width;
             canvas.height = img.height;
             const ctx = canvas.getContext('2d');
@@ -216,8 +356,9 @@
 
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
+            const threshold = parseInt(document.getElementById('threshold').value);
 
-            const imageWrapper = createWrapper(data, canvas.width, canvas.height);
+            const imageWrapper = createWrapper(data, canvas.width, canvas.height, threshold);
 
             const params = getCommonParams();
             params.grid = {
@@ -229,7 +370,28 @@
 
             try {
                 const output = window.fxconv.convert_topti(imageWrapper, params);
-                displayResult(output, canvas);
+                document.getElementById('output').value = output;
+
+                // Show on preview canvas
+                const destCanvas = document.getElementById('canvas');
+                destCanvas.width = canvas.width;
+                destCanvas.height = canvas.height;
+                const destCtx = destCanvas.getContext('2d');
+                destCtx.putImageData(imageData, 0, 0); // Show original (color) or thresholded?
+                // Ideally show thresholded result so user sees what the tool sees.
+                // Let's create a visual representation of the thresholded image.
+                const previewData = destCtx.createImageData(canvas.width, canvas.height);
+                for (let i = 0; i < data.length; i+=4) {
+                    const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                    // In wrapper: isBlack if avg < threshold.
+                    const val = avg < threshold ? 0 : 255;
+                    previewData.data[i] = val;
+                    previewData.data[i+1] = val;
+                    previewData.data[i+2] = val;
+                    previewData.data[i+3] = 255; // Opaque
+                }
+                destCtx.putImageData(previewData, 0, 0);
+
                 updatePreviewInfo(canvas.width, canvas.height, params.grid);
             } catch (err) {
                 alert("Error: " + err.message);
@@ -241,31 +403,46 @@
 
         async function generateAndConvert() {
             const fontInput = document.getElementById('fontFile');
-            if (!fontInput.files || !fontInput.files[0]) {
+            // Check if we have a file selected OR cached
+            let file = fontInput.files && fontInput.files[0];
+            if (!file && currentFontFile) file = currentFontFile;
+
+            if (!file) {
                 alert("Please select a font file.");
                 return;
             }
+            currentFontFile = file;
 
             const fontSize = parseInt(document.getElementById('fontSize').value);
             const padding = parseInt(document.getElementById('genPadding').value);
             const charset = document.getElementById('charset').value;
+            const threshold = parseInt(document.getElementById('threshold').value);
 
             try {
-                const result = await window.generateFontAtlas(fontInput.files[0], fontSize, charset, padding);
+                const result = await window.generateFontAtlas(file, fontSize, charset, padding, threshold);
 
                 const canvas = result.canvas;
                 const ctx = canvas.getContext('2d');
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const data = imageData.data;
 
-                const imageWrapper = createWrapper(data, canvas.width, canvas.height);
+                // For generated image, the data is already strictly B/W (0 or 255) based on threshold
+                // So the wrapper can use a simple check (e.g., < 128 is black).
+                const imageWrapper = createWrapper(data, canvas.width, canvas.height, 128);
 
                 const params = getCommonParams();
-                params.grid = result.grid; // Use calculated grid params
+                params.grid = result.grid;
 
                 const output = window.fxconv.convert_topti(imageWrapper, params);
 
-                displayResult(output, canvas);
+                document.getElementById('output').value = output;
+
+                const destCanvas = document.getElementById('canvas');
+                destCanvas.width = canvas.width;
+                destCanvas.height = canvas.height;
+                const destCtx = destCanvas.getContext('2d');
+                destCtx.putImageData(imageData, 0, 0);
+
                 updatePreviewInfo(canvas.width, canvas.height, params.grid);
 
             } catch (err) {
@@ -276,21 +453,21 @@
 
         // --- Utilities ---
 
-        function createWrapper(data, width, height) {
+        function createWrapper(data, width, height, threshold) {
             return {
                 width: width,
                 height: height,
                 isBlack: (x, y) => {
                     if (x < 0 || x >= width || y < 0 || y >= height) return false;
                     const idx = (width * y + x) * 4;
+                    // Check alpha too? usually fonts are opaque on white bg.
+                    // But if input PNG has transparency...
+                    // Let's stick to simple AVG logic
                     const r = data[idx];
                     const g = data[idx+1];
                     const b = data[idx+2];
-                    const a = data[idx+3];
-
-                    if (a < 128) return false;
                     const avg = (r + g + b) / 3;
-                    return avg < 128; // Black threshold for generated content
+                    return avg < threshold;
                 },
                 isWhite: (x, y) => {
                     if (x < 0 || x >= width || y < 0 || y >= height) return true;
@@ -298,11 +475,8 @@
                     const r = data[idx];
                     const g = data[idx+1];
                     const b = data[idx+2];
-                    const a = data[idx+3];
-
-                    if (a < 128) return false;
                     const avg = (r + g + b) / 3;
-                    return avg >= 128; // White threshold
+                    return avg >= threshold;
                 }
             };
         }
