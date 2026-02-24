@@ -270,6 +270,12 @@ function convert_topti(imageWrapper, params) {
                 s += "\\'";
             } else if (b === 92) {
                 s += "\\\\";
+            } else if (b === 13) {
+                s += "\\r";
+            } else if (b === 10) {
+                s += "\\n";
+            } else if (b === 9) {
+                s += "\\t";
             } else {
                 s += "\\x" + b.toString(16).padStart(2, '0');
             }
