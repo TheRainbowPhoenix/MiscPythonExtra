@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fxconv Web Tool</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .form-group { margin-bottom: 10px; }
+        label { display: inline-block; width: 150px; }
+        textarea { width: 100%; height: 300px; font-family: monospace; }
+        #canvas { display: none; }
+    </style>
+</head>
+<body>
+    <h1>fxconv Web Tool</h1>
+
+    <div class="form-group">
+        <label for="inputFile">Font Image:</label>
+        <input type="file" id="inputFile" accept="image/png, image/jpeg">
+    </div>
+
+    <div class="form-group">
+        <label for="name">Variable Name:</label>
+        <input type="text" id="name" value="my_font">
+    </div>
+
+    <div class="form-group">
+        <label for="charset">Charset:</label>
+        <select id="charset">
+            <option value="print">print (ASCII 0x20-0x7E)</option>
+            <option value="numeric">numeric (0-9)</option>
+            <option value="upper">upper (A-Z)</option>
+            <option value="alpha">alpha (A-Z, a-z)</option>
+            <option value="alnum">alnum (A-Z, a-z, 0-9)</option>
+            <option value="ascii">ascii (0x00-0x7F)</option>
+            <option value="256chars">256chars (0x00-0xFF)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="gridWidth">Grid Width:</label>
+        <input type="number" id="gridWidth" value="8">
+    </div>
+
+    <div class="form-group">
+        <label for="gridHeight">Grid Height:</label>
+        <input type="number" id="gridHeight" value="8">
+    </div>
+
+    <div class="form-group">
+        <label for="gridPadding">Grid Padding:</label>
+        <input type="number" id="gridPadding" value="0">
+    </div>
+
+    <div class="form-group">
+        <label for="gridBorder">Grid Border:</label>
+        <input type="number" id="gridBorder" value="0">
+    </div>
+
+    <div class="form-group">
+        <label for="proportional">Proportional:</label>
+        <input type="checkbox" id="proportional">
+    </div>
+
+    <div class="form-group">
+        <label for="charSpacing">Char Spacing:</label>
+        <input type="number" id="charSpacing" value="1">
+    </div>
+
+    <div class="form-group">
+        <label for="lineDistance">Line Distance:</label>
+        <input type="number" id="lineDistance" value="">
+    </div>
+
+    <button onclick="convert()">Convert</button>
+
+    <h3>Output (Python):</h3>
+    <textarea id="output" readonly></textarea>
+
+    <canvas id="canvas"></canvas>
+
+    <script src="fxconv_core.js"></script>
+    <script>
+        function convert() {
+            const fileInput = document.getElementById('inputFile');
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert("Please select an image file.");
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    processImage(img);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function processImage(img) {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            const imageWrapper = {
+                width: canvas.width,
+                height: canvas.height,
+                isBlack: (x, y) => {
+                    if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) return false;
+                    const idx = (canvas.width * y + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx+1];
+                    const b = data[idx+2];
+                    const a = data[idx+3];
+
+                    if (a < 128) return false;
+                    const avg = (r + g + b) / 3;
+                    return avg < 43;
+                },
+                isWhite: (x, y) => {
+                    if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) return true;
+                    const idx = (canvas.width * y + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx+1];
+                    const b = data[idx+2];
+                    const a = data[idx+3];
+
+                    if (a < 128) return false;
+                    const avg = (r + g + b) / 3;
+                    return avg > 212;
+                }
+            };
+
+            const params = {
+                name: document.getElementById('name').value,
+                charset: document.getElementById('charset').value,
+                grid: {
+                    width: document.getElementById('gridWidth').value,
+                    height: document.getElementById('gridHeight').value,
+                    padding: document.getElementById('gridPadding').value,
+                    border: document.getElementById('gridBorder').value,
+                },
+                proportional: document.getElementById('proportional').checked,
+                'char-spacing': document.getElementById('charSpacing').value,
+            };
+
+            const lineDist = document.getElementById('lineDistance').value;
+            if (lineDist) params['line-distance'] = lineDist;
+
+            try {
+                const output = window.fxconv.convert_topti(imageWrapper, params);
+                document.getElementById('output').value = output;
+            } catch (err) {
+                alert("Error: " + err.message);
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>
