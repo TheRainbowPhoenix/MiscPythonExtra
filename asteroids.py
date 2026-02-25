@@ -1,5 +1,4 @@
 from gint import *
-import pygame
 from random import randint
 
 # Configuration
@@ -261,9 +260,6 @@ def run():
         clearevents()
         
         if keydown(KEY_EXIT): break
-        if keydown(KEY_EQUALS):
-            import gint
-            pygame.image.save(gint.vram, "screenshot.png")
         
         # ERASE OLD
         for e in entities: 
@@ -356,5 +352,6 @@ def run():
             dtext(90, 240, C_FG, "Press [EXE] to Restart")
             
         dupdate()
+
 
 run()
