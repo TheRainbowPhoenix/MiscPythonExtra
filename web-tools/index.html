@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fxconv Web Tool</title>
+    <style>
+        :root {
+            --primary: #007bff;
+            --primary-dark: #0056b3;
+            --bg: #f8f9fa;
+            --text: #343a40;
+            --border: #dee2e6;
+            --white: #ffffff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { margin-top: 0; font-size: 1.5rem; margin-bottom: 20px; }
+        h2 { font-size: 1.2rem; margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; }
+
+        /* Layout */
+        .container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        @media (min-width: 900px) {
+            .container {
+                grid-template-columns: 350px 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--white);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            border: 1px solid var(--border);
+        }
+
+        /* Form Elements */
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
+        input[type="text"], input[type="number"], select, input[type="file"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+        }
+        input[type="checkbox"] { margin-right: 8px; transform: scale(1.2); }
+        .checkbox-group { display: flex; align-items: center; }
+        .checkbox-group label { margin-bottom: 0; font-weight: normal; cursor: pointer; }
+
+        /* Range Slider */
+        .range-container { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex: 1; }
+        .range-value { font-family: monospace; min-width: 3ch; text-align: right; }
+
+        /* Buttons */
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+        button:hover { background-color: var(--primary-dark); }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        .btn-group { display: flex; gap: 10px; }
+        .btn-group button { flex: 1; }
+
+        /* Tabs */
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid var(--border); }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6c757d;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            flex: 1;
+            text-align: center;
+        }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        .hidden { display: none !important; }
+
+        /* Preview Area */
+        .preview-container {
+            border: 1px solid var(--border);
+            background: #eee; /* Checkerboard bg? */
+            background-image:
+                linear-gradient(45deg, #ddd 25%, transparent 25%),
+                linear-gradient(-45deg, #ddd 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #ddd 75%),
+                linear-gradient(-45deg, transparent 75%, #ddd 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            padding: 10px;
+            overflow: auto;
+            max-height: 400px;
+            text-align: center;
+            border-radius: 4px;
+        }
+        canvas {
+            image-rendering: pixelated; /* Sharp pixels */
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+            background: white;
+            max-width: 100%;
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.85rem;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+
+        .compact-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>fxconv Web Tool</h1>
+
+    <div class="container">
+        <!-- LEFT PANEL: CONTROLS -->
+        <div class="panel">
+            <div class="tabs">
+                <div id="tabConvert" class="tab active" onclick="setMode('convert')">Image</div>
+                <div id="tabGenerate" class="tab" onclick="setMode('generate')">Font File</div>
+            </div>
+
+            <!-- Global Params -->
+            <div class="form-group">
+                <label for="name">Variable Name</label>
+                <input type="text" id="name" value="my_font">
+            </div>
+
+            <div class="compact-grid">
+                <div class="form-group">
+                    <label for="charset">Charset</label>
+                    <select id="charset">
+                        <option value="print">print (ASCII 0x20-0x7E)</option>
+                        <option value="numeric">numeric (0-9)</option>
+                        <option value="upper">upper (A-Z)</option>
+                        <option value="alpha">alpha (A-Z, a-z)</option>
+                        <option value="alnum">alnum (A-Z, a-z, 0-9)</option>
+                        <option value="ascii">ascii (0x00-0x7F)</option>
+                        <option value="256chars">256chars (0x00-0xFF)</option>
+                    <option value="unicode">unicode (Auto-Detect)</option>
+                    </select>
+                </div>
+                <div class="form-group checkbox-group" style="align-items: flex-end; padding-bottom: 10px;">
+                    <input type="checkbox" id="proportional" checked>
+                    <label for="proportional">Proportional</label>
+                </div>
+            </div>
+
+            <div class="compact-grid">
+                <div class="form-group">
+                    <label for="charSpacing">Spacing</label>
+                    <input type="number" id="charSpacing" value="1">
+                </div>
+                <div class="form-group">
+                    <label for="lineDistance">Line Dist</label>
+                    <input type="number" id="lineDistance" placeholder="Default">
+                </div>
+            </div>
+
+            <!-- MODE: CONVERT IMAGE -->
+            <div id="controlsConvert">
+                <div class="form-group">
+                    <label for="inputFile">Input Image(s)</label>
+                    <input type="file" id="inputFile" accept="image/png, image/jpeg" multiple>
+                </div>
+
+                <div class="compact-grid">
+                    <div class="form-group">
+                        <label for="gridWidth">Grid W</label>
+                        <input type="number" id="gridWidth" value="8">
+                    </div>
+                    <div class="form-group">
+                        <label for="gridHeight">Grid H</label>
+                        <input type="number" id="gridHeight" value="8">
+                    </div>
+                </div>
+                <div class="compact-grid">
+                    <div class="form-group">
+                        <label for="gridPadding">Padding</label>
+                        <input type="number" id="gridPadding" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="gridBorder">Border</label>
+                        <input type="number" id="gridBorder" value="0">
+                    </div>
+                </div>
+
+                <button onclick="convertFromImage()">Process Image</button>
+            </div>
+
+            <!-- MODE: GENERATE FONT -->
+            <div id="controlsGenerate" class="hidden">
+                <div class="form-group">
+                    <label for="fontFile">Font File (TTF/OTF/WOFF)</label>
+                    <input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2">
+                </div>
+
+                <div class="compact-grid">
+                    <div class="form-group">
+                        <label for="fontSize">Size (px)</label>
+                        <input type="number" id="fontSize" value="16">
+                    </div>
+                    <div class="form-group">
+                        <label for="genPadding">Inner Pad</label>
+                        <input type="number" id="genPadding" value="0">
+                    </div>
+                </div>
+
+                <button onclick="generateAndConvert()">Generate Font</button>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL: PREVIEW & OUTPUT -->
+        <div class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2>Preview</h2>
+                <div style="font-size: 0.85rem; color: #666;" id="previewInfo">Not loaded</div>
+            </div>
+
+            <!-- Threshold Control -->
+            <div class="form-group" style="background: #f1f3f5; padding: 10px; border-radius: 4px;">
+                <label for="threshold" style="display: flex; justify-content: space-between;">
+                    <span>B/W Threshold (No AA)</span>
+                    <span id="thresholdVal" class="range-value">128</span>
+                </label>
+                <div class="range-container">
+                    <span>0</span>
+                    <input type="range" id="threshold" min="0" max="255" value="128" oninput="updateThreshold(this.value)">
+                    <span>255</span>
+                </div>
+            </div>
+
+            <div class="preview-container">
+                <canvas id="canvas"></canvas>
+            </div>
+
+            <div class="btn-group" style="margin: 15px 0;">
+                <button class="btn-secondary" onclick="downloadPng()">Download Image</button>
+                <button class="btn-secondary" onclick="downloadPy()">Download Code</button>
+            </div>
+
+            <h2>Python Output</h2>
+            <textarea id="output" readonly></textarea>
+        </div>
+    </div>
+
+    <script src="fxconv_core.js"></script>
+    <script src="font_generator.js"></script>
+    <script>
+        let currentMode = 'convert';
+
+        // Cache for current source data so we can re-process on threshold change
+        let currentSourceImage = null; // For 'convert' mode: Image object
+        let currentFontFile = null;    // For 'generate' mode: File object
+        let lastGeneratedResult = null; // To avoid re-generating font logic if only threshold changed? No, generateFontAtlas USES threshold.
+
+        // Setup UI
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('tabConvert').className = mode === 'convert' ? 'tab active' : 'tab';
+            document.getElementById('tabGenerate').className = mode === 'generate' ? 'tab active' : 'tab';
+
+            if (mode === 'convert') {
+                document.getElementById('controlsConvert').classList.remove('hidden');
+                document.getElementById('controlsGenerate').classList.add('hidden');
+            } else {
+                document.getElementById('controlsConvert').classList.add('hidden');
+                document.getElementById('controlsGenerate').classList.remove('hidden');
+            }
+        }
+
+        function updateThreshold(val) {
+            document.getElementById('thresholdVal').innerText = val;
+            // Debounce or just trigger?
+            // If we have data, re-run
+            if (currentMode === 'convert' && currentSourceImage) {
+                processConvertImage(currentSourceImage);
+            } else if (currentMode === 'generate' && currentFontFile) {
+                generateAndConvert(); // Re-generate atlas with new threshold
+            }
+        }
+
+        function getCommonParams() {
+            const params = {
+                name: document.getElementById('name').value,
+                charset: document.getElementById('charset').value,
+                proportional: document.getElementById('proportional').checked,
+                'char-spacing': document.getElementById('charSpacing').value,
+            };
+            const lineDist = document.getElementById('lineDistance').value;
+            if (lineDist) params['line-distance'] = lineDist;
+            return params;
+        }
+
+        function updatePreviewInfo(w, h, grid) {
+            document.getElementById('previewInfo').innerText = `${w}x${h} • Grid: ${grid.width}x${grid.height}`;
+        }
+
+        // --- Convert Mode ---
+
+        function convertFromImage() {
+            const fileInput = document.getElementById('inputFile');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert("Please select image file(s).");
+                return;
+            }
+
+            // Check for unicode mode
+            const charset = document.getElementById('charset').value;
+
+            if (charset === 'unicode') {
+                processUnicodeImages(fileInput.files);
+            } else {
+                // Single file mode
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        currentSourceImage = img;
+                        processConvertImage(img);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function processUnicodeImages(fileList) {
+            const inputs = [];
+            const threshold = parseInt(document.getElementById('threshold').value);
+
+            // Regex to find U+XXXX
+            const re = /U\+([0-9A-Fa-f]+)/;
+
+            for (const file of fileList) {
+                const match = file.name.match(re);
+                if (!match) continue; // Skip non-matching files
+                const start = parseInt(match[1], 16);
+
+                const img = await loadImage(file);
+                const cvs = document.createElement('canvas');
+                cvs.width = img.width;
+                cvs.height = img.height;
+                const ctx = cvs.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const data = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
+                const wrapper = createWrapper(data, cvs.width, cvs.height, threshold);
+
+                inputs.push({ start: start, image: wrapper });
+            }
+
+            if (inputs.length === 0) {
+                alert("No valid U+XXXX files found.");
+                return;
+            }
+
+            const params = getCommonParams();
+            params.grid = {
+                width: document.getElementById('gridWidth').value,
+                height: document.getElementById('gridHeight').value,
+                padding: document.getElementById('gridPadding').value,
+                border: document.getElementById('gridBorder').value,
+            };
+
+            try {
+                const output = window.fxconv.convert_topti(inputs, params);
+                document.getElementById('output').value = output;
+                document.getElementById('previewInfo').innerText = `Processed ${inputs.length} blocks.`;
+                // Preview? Maybe just the first one?
+                // Or clear canvas
+                const canvas = document.getElementById('canvas');
+                canvas.width = 300; canvas.height = 50;
+                const ctx = canvas.getContext('2d');
+                ctx.fillText("Unicode mode: multiple blocks processed", 10, 30);
+            } catch (err) {
+                alert("Error: " + err.message);
+                console.error(err);
+            }
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function processConvertImage(img) {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            const threshold = parseInt(document.getElementById('threshold').value);
+
+            const imageWrapper = createWrapper(data, canvas.width, canvas.height, threshold);
+
+            const params = getCommonParams();
+            params.grid = {
+                width: document.getElementById('gridWidth').value,
+                height: document.getElementById('gridHeight').value,
+                padding: document.getElementById('gridPadding').value,
+                border: document.getElementById('gridBorder').value,
+            };
+
+            try {
+                const output = window.fxconv.convert_topti(imageWrapper, params);
+                document.getElementById('output').value = output;
+
+                // Show on preview canvas
+                const destCanvas = document.getElementById('canvas');
+                destCanvas.width = canvas.width;
+                destCanvas.height = canvas.height;
+                const destCtx = destCanvas.getContext('2d');
+
+                // Visualization
+                const previewData = destCtx.createImageData(canvas.width, canvas.height);
+                for (let i = 0; i < data.length; i+=4) {
+                    const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                    const val = avg < threshold ? 0 : 255;
+                    previewData.data[i] = val;
+                    previewData.data[i+1] = val;
+                    previewData.data[i+2] = val;
+                    previewData.data[i+3] = 255;
+                }
+                destCtx.putImageData(previewData, 0, 0);
+
+                updatePreviewInfo(canvas.width, canvas.height, params.grid);
+            } catch (err) {
+                alert("Error: " + err.message);
+                console.error(err);
+            }
+        }
+
+        // --- Generate Mode ---
+
+        async function generateAndConvert() {
+            const fontInput = document.getElementById('fontFile');
+            let file = fontInput.files && fontInput.files[0];
+            if (!file && currentFontFile) file = currentFontFile;
+
+            if (!file) {
+                alert("Please select a font file.");
+                return;
+            }
+            currentFontFile = file;
+
+            const fontSize = parseInt(document.getElementById('fontSize').value);
+            const padding = parseInt(document.getElementById('genPadding').value);
+            const charset = document.getElementById('charset').value;
+            const threshold = parseInt(document.getElementById('threshold').value);
+
+            try {
+                if (charset === 'unicode') {
+                    // Multi-block generation
+                    const results = await window.generateUnicodeData(file, fontSize, padding, threshold);
+
+                    const inputs = results.map(r => ({
+                        start: r.start,
+                        image: createWrapper(r.data, r.canvas.width, r.canvas.height, 128)
+                    }));
+
+                    const params = getCommonParams();
+                    params.grid = results[0].grid; // Assume consistent grid
+
+                    const output = window.fxconv.convert_topti(inputs, params);
+                    document.getElementById('output').value = output;
+
+                    // Preview - Stacked?
+                    const destCanvas = document.getElementById('canvas');
+                    let totalH = 0;
+                    let maxW = 0;
+                    results.forEach(r => {
+                        totalH += r.canvas.height + 10;
+                        if (r.canvas.width > maxW) maxW = r.canvas.width;
+                    });
+
+                    destCanvas.width = maxW;
+                    destCanvas.height = totalH;
+                    const ctx = destCanvas.getContext('2d');
+
+                    let y = 0;
+                    results.forEach(r => {
+                        ctx.fillStyle = '#666';
+                        ctx.fillText(`Block U+${r.start.toString(16).toUpperCase()}`, 0, y + 10);
+                        ctx.drawImage(r.canvas, 0, y + 15);
+                        y += r.canvas.height + 25;
+                    });
+
+                    updatePreviewInfo(maxW, totalH, params.grid);
+
+                } else {
+                    // Standard single block
+                    const result = await window.generateFontAtlas(file, fontSize, charset, padding, threshold);
+
+                    const canvas = result.canvas;
+                    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+
+                    const imageWrapper = createWrapper(data, canvas.width, canvas.height, 128);
+
+                    const params = getCommonParams();
+                    params.grid = result.grid;
+
+                    const output = window.fxconv.convert_topti(imageWrapper, params);
+
+                    document.getElementById('output').value = output;
+
+                    const destCanvas = document.getElementById('canvas');
+                    destCanvas.width = canvas.width;
+                    destCanvas.height = canvas.height;
+                    const destCtx = destCanvas.getContext('2d');
+                    destCtx.putImageData(imageData, 0, 0);
+
+                    updatePreviewInfo(canvas.width, canvas.height, params.grid);
+                }
+
+            } catch (err) {
+                alert("Generation Error: " + err.message);
+                console.error(err);
+            }
+        }
+
+        // --- Utilities ---
+
+        function createWrapper(data, width, height, threshold) {
+            return {
+                width: width,
+                height: height,
+                isBlack: (x, y) => {
+                    if (x < 0 || x >= width || y < 0 || y >= height) return false;
+                    const idx = (width * y + x) * 4;
+                    // Check alpha too? usually fonts are opaque on white bg.
+                    // But if input PNG has transparency...
+                    // Let's stick to simple AVG logic
+                    const r = data[idx];
+                    const g = data[idx+1];
+                    const b = data[idx+2];
+                    const avg = (r + g + b) / 3;
+                    return avg < threshold;
+                },
+                isWhite: (x, y) => {
+                    if (x < 0 || x >= width || y < 0 || y >= height) return true;
+                    const idx = (width * y + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx+1];
+                    const b = data[idx+2];
+                    const avg = (r + g + b) / 3;
+                    return avg >= threshold;
+                }
+            };
+        }
+
+        function downloadPy() {
+            const content = document.getElementById('output').value;
+            if (!content) return;
+            const name = document.getElementById('name').value || "font";
+            const blob = new Blob([content], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name + ".py";
+            a.click();
+        }
+
+        function downloadPng() {
+            const canvas = document.getElementById('canvas');
+            if (canvas.width === 0) return;
+            const name = document.getElementById('name').value || "font";
+            const a = document.createElement('a');
+            a.href = canvas.toDataURL('image/png');
+            a.download = name + ".png";
+            a.click();
+        }
+    </script>
+</body>
+</html>
