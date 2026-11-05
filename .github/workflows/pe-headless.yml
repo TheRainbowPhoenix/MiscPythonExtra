@@ -60,7 +60,7 @@ jobs:
              {"time":"2026-11-05T01:12:00.130Z","direction":"Host → MicroPython","kind":"EXEC","size":8,"preview":"70 72 69 6e 74 28 31 29"},
              {"time":"2026-11-05T01:12:00.132Z","direction":"MicroPython → Host","kind":"EXEC","size":2,"preview":"31 0a"},
           ]
-          Path("build/usb.jsonl").write_text("".join(json.dumps(e)+"\\n" for e in examples))
+          Path("build/usb.jsonl").write_text("".join(json.dumps(e)+chr(10) for e in examples))
           PY
           xvfb-run -a python3 tools/pe-headless/view.py \
              --remote-log build/usb.jsonl --screenshot-tab Remote \
