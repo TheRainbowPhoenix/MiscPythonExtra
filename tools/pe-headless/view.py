@@ -555,6 +555,8 @@ class Inspector:
         self.details.insert("end","Timestamp: %.3f ms\n"%(call.when_ns/1e6))
         if call.args:
             self.details.insert("end","Arguments: %s\n"%(", ".join(map(str,call.args))))
+        if call.stack:
+            self.details.insert("end","Python stack:\n"+"\n".join(call.stack)+"\n")
 
     def toggle_record(self):
         enabled=not self.recording
@@ -571,7 +573,7 @@ class Inspector:
         if not name:
             return
         frames=[[{"name":e.name,"duration_ns":e.duration_ns,
-                  "when_ns":e.when_ns,"args":e.args}
+                  "when_ns":e.when_ns,"args":e.args,"stack":e.stack}
                  for e in frame] for frame in self.frames.frames]
         Path(name).write_text(json.dumps({"frames":frames},indent=2)+"\n",
                               encoding="utf-8")
