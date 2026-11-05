@@ -268,7 +268,6 @@ class Inspector:
         from remote_panel import RemotePanel
         self.remote_panel=RemotePanel(self.body,has_log=bool(self.remote_log))
         self.remote_tree=self.remote_panel.tree
-        self.remote_status=self.remote_panel.status
         self.remote_detail=self.remote_panel.detail
         self._remote_refresh()
 
@@ -280,7 +279,7 @@ class Inspector:
             try:
                 self.remote_events=load_events(self.remote_log)[-1000:]
             except (OSError,ValueError) as error:
-                self.remote_status.configure(text="USB log: "+str(error))
+                self.status.configure(text="USB log: "+str(error))
         self.remote_panel.update(self.remote_events)
 
     def _remote_select(self,event=None):
