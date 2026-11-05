@@ -26,7 +26,7 @@ class Tabs(unittest.TestCase):
                                     "Timelines","Graphics","Remote"])
             self.assertEqual(len(app.tab_icons),len(names))
             for i in range(len(names)):
-                self.assertEqual(app.tabs.tab(i,"compound"),"left")
+                self.assertEqual(str(app.tabs.tab(i,"compound")),"left")
                 self.assertTrue(app.tabs.tab(i,"image"))
             self.assertEqual(len(app.frames.frames),68)
             for name in names:
