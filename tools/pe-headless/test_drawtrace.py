@@ -29,6 +29,30 @@ class TraceTests(unittest.TestCase):
             self.assertEqual(len(store.frames),2)
             self.assertEqual(store.summary(store.frames[0])[0][0],"drect")
 
+    def test_shm_graphics_stack_and_frame_boundary(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/"screen.mmap"
+            with path.open("wb") as f:
+                f.truncate(SHM_SIZE)
+            with path.open("r+b") as f, mmap.mmap(f.fileno(),SHM_SIZE) as mm:
+                struct.pack_into("<II",mm,0,0x50454931,1)
+                struct.pack_into("<III",mm,SHM_CTRL,2,0,0)
+                names=(b"drect\nCPChat_host.py|47|main",b"dupdate\nCPChat_host.py|64|main")
+                for i,(kind,label) in enumerate(zip((42,49),names)):
+                    offset=SHM_RING+i*256
+                    struct.pack_into("<QIII",mm,offset,100+i,kind,22,0)
+                    mm[offset+20:offset+20+len(label)]=label
+            reader=SharedMemoryTraceReader(path)
+            try:
+                events=reader.read()
+                self.assertEqual([e.name for e in events],["drect","dupdate"])
+                self.assertEqual(events[0].stack,("CPChat_host.py|47|main",))
+                store=FrameStore()
+                self.assertEqual(store.append(events),1)
+                self.assertEqual(len(store.frames[0]),2)
+            finally:
+                reader.close()
+
     def test_shm_ring_and_framebuffer_independence(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/"screen.mmap"
