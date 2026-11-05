@@ -35,9 +35,9 @@ class Tabs(unittest.TestCase):
                 self.assertEqual(app.tab,name)
             self.assertTrue(hasattr(app,"remote_tree"))
             self.assertTrue(hasattr(app,"remote_status"))
-            self.assertIn("Serial: not implemented",
-                [x.cget("text") for x in app.pages["Remote"].winfo_children()[-1].winfo_children()
-                 if isinstance(x,tk.Label)] if False else ["Serial: not implemented"])
+            labels=[x.cget("text") for container in app.pages["Remote"].winfo_children()
+                    for x in container.winfo_children() if isinstance(x,tk.Label)]
+            self.assertIn("Serial: not implemented",labels)
         finally:
             root.destroy()
 
