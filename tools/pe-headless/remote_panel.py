@@ -130,6 +130,10 @@ class RemotePanel:
         self.status.configure(text="%d USB packets | Serial: not implemented"%visible)
         if old is not None and str(old) in self.tree.get_children():
             self.tree.selection_set(str(old))
+            self.select()
+        elif self.tree.get_children():
+            self.tree.selection_set(self.tree.get_children()[0])
+            self.select()
 
     def select(self,event=None):
         chosen=self.tree.selection()
