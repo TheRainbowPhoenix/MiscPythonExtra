@@ -25,6 +25,17 @@ jobs:
         run: python3 tools/pe-headless/test_drawtrace.py
       - name: Test standalone USB bridge
         run: python3 tools/pe-headless/test_usb_bridge.py
+      - name: Verify optimized raytracer emits identical frame pixels
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'tools/pe-headless')
+          from profile_raytracer import capture_pixels
+          a=capture_pixels('render_raytracer.py')
+          b=capture_pixels('render_raytracer_fast.py')
+          assert a == b, 'optimized raytracer changed screen output'
+          print('PASS:',len(a['frames']),'identical RGB565 frames')
+          PY
       - name: Render inspector reference screenshot
         run: |
           xvfb-run -a python3 tools/pe-headless/view.py \
