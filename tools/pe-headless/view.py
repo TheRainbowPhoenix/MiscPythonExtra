@@ -239,7 +239,6 @@ class Inspector:
                     bg="white",fg=MUTED,anchor="w").pack(fill="x",padx=18,pady=16)
 
     def _remote(self):
-        from remote_trace import RemoteLogReader
         self._label(self.body,"USB / Remote",bg="#f7f7f8",
                     font=("Segoe UI",12,"bold"),anchor="w").pack(fill="x",ipady=10,padx=8)
         bar=tk.Frame(self.body,bg="white")
