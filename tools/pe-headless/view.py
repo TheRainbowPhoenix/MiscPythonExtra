@@ -62,6 +62,7 @@ class Inspector:
             self.worker = RecorderThread(reader, self.messages)
             self.worker.start()
         root.after(50, self._drain)
+        root.after(500, self._poll_remote)
         root.protocol("WM_DELETE_WINDOW", self._close)
 
     def _style(self):
@@ -133,6 +134,9 @@ class Inspector:
                         padding=(16,9),borderwidth=1)
         style.map("PE.TNotebook.Tab",background=[("selected","#ffffff")],
                   foreground=[("selected","#1676d2")])
+        self.status=self._label(self.root,"Native telemetry  •  USB / Graphics",
+                                fg=MUTED,bg=CHROME,anchor="w")
+        self.status.pack(side="bottom",fill="x",padx=12,ipady=5)
         self.tabs=ttk.Notebook(self.root,style="PE.TNotebook")
         self.tabs.pack(fill="both",expand=True)
         self.pages={}
@@ -145,8 +149,11 @@ class Inspector:
             self.tabs.add(page,text=title,image=icon,compound="left")
             self.pages[title]=page
         self.tabs.bind("<<NotebookTabChanged>>",self._tab_changed)
-        # Everything below remains per-tab: never inject unrelated browser tabs.
-        self.show_tab("Graphics")
+        # Keep the original Performance landing page, except the screenshot
+        # demo where Graphics is the feature being previewed.
+        landing="Graphics" if self.demo else "Performance"
+        self.tabs.select(self.pages[landing])
+        self.show_tab(landing)
 
     def _tab_changed(self,event=None):
         index=self.tabs.index(self.tabs.select())
@@ -165,8 +172,6 @@ class Inspector:
             self.record_btn.pack(side="left",padx=(12,7))
         ttk.Button(toolbar,text="Import",command=self.import_trace).pack(side="left",padx=3)
         ttk.Button(toolbar,text="Export JSON",command=self.export).pack(side="left",padx=3)
-        self.status=self._label(toolbar,"Ready",fg=MUTED,bg="#fafafa")
-        self.status.pack(side="right",padx=15)
         return toolbar
 
     def show_tab(self,tab):
@@ -175,7 +180,8 @@ class Inspector:
         for child in self.body.winfo_children():
             child.destroy()
         # Keep a fixed session status across all the inspector's tabs.
-        self._toolbar(self.body,recording=(tab in ("Graphics","Timelines")))
+        if tab in ("Graphics","Timelines"):
+            self._toolbar(self.body,recording=True)
         if tab=="Graphics":
             self._graphics()
         elif tab=="Timelines":
@@ -613,6 +619,19 @@ class Inspector:
                 self._update_performance()
         if self.root.winfo_exists():
             self.root.after(50,self._drain)
+
+    def _poll_remote(self):
+        if not self.root.winfo_exists():
+            return
+        if self.tab=="Remote" and self.remote_log:
+            try:
+                from remote_trace import load_events
+                events=load_events(self.remote_log)[-1000:]
+                if events!=self.remote_events:
+                    self._remote_refresh()
+            except OSError:
+                pass
+        self.root.after(500,self._poll_remote)
 
     def _make_demo(self):
         ts=1000000000000
