@@ -45,8 +45,8 @@ def run():
             
             # 1. Ray Generation
             # Perspective projection
-            inv_d = 1.0 / sqrt(u*u + v*v + 2.25)
-            rd_x, rd_y, rd_z = u*inv_d, v*inv_d, 1.5*inv_d
+            d = sqrt(u*u + v*v + 2.25)
+            rd_x, rd_y, rd_z = u/d, v/d, 1.5/d
             
             # 2. Intersection
             closest_t = 99.0
@@ -99,8 +99,9 @@ def run():
                     # Vector Hit->Light
                     lvx, lvy, lvz = lx - px, ly - py, lz - pz
                     # Normalize
-                    inv_l = 1.0 / sqrt(lvx*lvx + lvy*lvy + lvz*lvz)
-                    dot = (nx*lvx + ny*lvy + nz*lvz) * inv_l
+                    l_dist = sqrt(lvx*lvx + lvy*lvy + lvz*lvz)
+                    lvx, lvy, lvz = lvx/l_dist, lvy/l_dist, lvz/l_dist
+                    dot = nx*lvx + ny*lvy + nz*lvz
                     if dot > 0:
                         intensity += dot * 0.6 
 
