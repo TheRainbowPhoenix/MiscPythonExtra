@@ -31,8 +31,8 @@ jobs:
           import sys
           sys.path.insert(0, 'tools/pe-headless')
           from profile_raytracer import capture_pixels
-          a=capture_pixels('render_raytracer.py')
-          b=capture_pixels('render_raytracer_fast.py')
+          a=capture_pixels('tools/pe-headless/fixtures/raytracer_baseline.py')
+          b=capture_pixels('render_raytracer.py')
           assert a == b, 'optimized raytracer changed screen output'
           print('PASS:',len(a['frames']),'identical RGB565 frames')
           PY
