@@ -14,6 +14,7 @@ import types
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 SCRIPT = pathlib.Path(__file__).resolve().parent / "examples/CPChat_optimized.py"
 
 
