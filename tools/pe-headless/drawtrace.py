@@ -39,6 +39,7 @@ class DrawEvent:
     duration_ns: int
     args: tuple = ()
     method_id: int = 0
+    stack: tuple = ()
 
 
 class FileTraceReader:
@@ -110,9 +111,10 @@ class SharedMemoryTraceReader:
             if 41 <= kind <= 55:
                 method = kind - 40
                 label = self.shared[offset + 20:offset + 256].split(b"\x00", 1)[0]
-                name = label.decode("utf-8", "replace") or METHODS.get(method, "?")
+                parts = label.decode("utf-8", "replace").split("\n")
+                name = parts[0] or METHODS.get(method, "?")
                 events.append(DrawEvent(stamp * 1000, name, max(value, 0) * 1000,
-                                        (), method))
+                                        (), method, tuple(parts[1:])))
             read = (read + 1) & 0xffffffff
         struct.pack_into("<I", self.shared, SHM_CTRL + 4, read)
         return events
