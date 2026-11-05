@@ -84,8 +84,8 @@ def run_demo(path, port, frames, delay):
                 screen.push()
                 if delay:
                     time.sleep(delay)
-            print("PASS: %d genuine spu-tools RemoteScreen frames" % frames)
             client.stop()
+            print("PASS: %d genuine spu-tools RemoteScreen frames; STOP acknowledged" % frames)
     finally:
         device.close()
 
