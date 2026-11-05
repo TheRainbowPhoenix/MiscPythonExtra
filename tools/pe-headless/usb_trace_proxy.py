@@ -67,8 +67,8 @@ class PacketDecoder:
                   "preview":bytes(payload[:96]).hex(" "),
                   "packet_type":packet_type})
 
-def proxy(listen, target, port, log, stop_after_one=False, ready=None):
-    for host in (listen,target):
+def proxy(listen, upstream_host, target_port, listen_port, log, stop_after_one=False, ready=None):
+    for host in (listen,upstream_host):
         if host not in ("127.0.0.1","localhost"):
             raise ValueError("USB virtual transport must bind to localhost only")
     with Path(log).open("a",encoding="utf-8",buffering=1) as trace:
@@ -76,14 +76,14 @@ def proxy(listen, target, port, log, stop_after_one=False, ready=None):
             trace.write(json.dumps(record,ensure_ascii=False)+"\n")
         with socket.socket() as server:
             server.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-            server.bind(("127.0.0.1",port))
+            server.bind(("127.0.0.1",listen_port))
             server.listen(4)
             if ready is not None:
                 ready(server.getsockname()[1])
             while True:
                 client,_=server.accept()
                 try:
-                    upstream=socket.create_connection(("127.0.0.1",target),timeout=10)
+                    upstream=socket.create_connection((upstream_host,target_port),timeout=10)
                 except Exception:
                     client.close()
                     if stop_after_one:raise
