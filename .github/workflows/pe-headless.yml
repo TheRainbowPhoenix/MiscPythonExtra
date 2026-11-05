@@ -48,9 +48,29 @@ jobs:
             --demo --source render_raytracer.py \
             --screenshot build/devtools-inspector.png
           file build/devtools-inspector.png
+      - name: Render Remote USB packet trace UI
+        run: |
+          mkdir -p build
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          examples=[
+             {"time":"2026-11-05T01:12:00.123Z","direction":"Host → MicroPython","kind":"PING","size":9,"preview":"73 70 75 2d 74 6f 6f 6c 73"},
+             {"time":"2026-11-05T01:12:00.125Z","direction":"MicroPython → Host","kind":"PING","size":13,"preview":"00 00 00 05 73 70 75 2d 74 6f 6f 6c 73"},
+             {"time":"2026-11-05T01:12:00.130Z","direction":"Host → MicroPython","kind":"EXEC","size":8,"preview":"70 72 69 6e 74 28 31 29"},
+             {"time":"2026-11-05T01:12:00.132Z","direction":"MicroPython → Host","kind":"EXEC","size":2,"preview":"31 0a"},
+          ]
+          Path("build/usb.jsonl").write_text("".join(json.dumps(e)+"\\n" for e in examples))
+          PY
+          xvfb-run -a python3 tools/pe-headless/view.py \
+             --remote-log build/usb.jsonl --screenshot-tab Remote \
+             --screenshot build/remote-inspector.png
+
       - name: Upload inspector screenshot
         uses: actions/upload-artifact@v4
         with:
           name: pe-headless-tk-inspector-screenshot
-          path: build/devtools-inspector.png
+          path: |
+            build/devtools-inspector.png
+            build/remote-inspector.png
           if-no-files-found: error
