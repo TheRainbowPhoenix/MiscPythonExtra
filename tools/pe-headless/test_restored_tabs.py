@@ -37,8 +37,8 @@ class Tabs(unittest.TestCase):
                 self.assertEqual(app.tab,name)
                 self.assertEqual([app.tab_boxes[n].winfo_width() for n in names],widths)
             self.assertTrue(hasattr(app,"remote_tree"))
-            self.assertTrue(hasattr(app,"remote_status"))
-            self.assertIn("Serial: not implemented",app.remote_status.cget("text"))
+            self.assertFalse(hasattr(app,"remote_status"))
+            self.assertNotIn("direction",app.remote_tree["columns"])
             from remote_panel import direction,hexdump
             record={"kind":"EXEC","direction":"MicroPython -> Host",
                     "size":4,"payload_hex":"00 41 FF 42"}
