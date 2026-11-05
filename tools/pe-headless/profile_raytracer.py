@@ -3,7 +3,7 @@
 
   python tools/pe-headless/profile_raytracer.py \
     --exe /path/to/micropython \
-    --original render_raytracer.py --optimized render_raytracer_fast.py
+    --original tools/pe-headless/fixtures/raytracer_baseline.py --optimized render_raytracer.py
 """
 import argparse
 import array
