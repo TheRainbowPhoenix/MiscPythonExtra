@@ -64,8 +64,8 @@ class ProxyTests(unittest.TestCase):
             events=load_events(log)
             self.assertEqual([e["kind"] for e in events],["EXEC","EXEC"])
             self.assertEqual([e["size"] for e in events],[9,3])
-            self.assertEqual(events[0]["direction"],"Host → MicroPython")
-            self.assertEqual(events[1]["direction"],"MicroPython → Host")
+            self.assertEqual(events[0]["direction"],"Host -> MicroPython")
+            self.assertEqual(events[1]["direction"],"MicroPython -> Host")
 
 if __name__=="__main__":
     unittest.main()
