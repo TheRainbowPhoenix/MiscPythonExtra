@@ -1,0 +1,39 @@
+name: Headless inspector checks
+on:
+  push:
+    paths:
+      - 'tools/pe-headless/**'
+      - '.github/workflows/pe-headless.yml'
+  pull_request:
+    paths:
+      - 'tools/pe-headless/**'
+      - '.github/workflows/pe-headless.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tk screenshot requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-tk python3-pil xvfb
+      - name: Test binary event parser and SHM recording
+        run: python3 tools/pe-headless/test_drawtrace.py
+      - name: Test standalone USB bridge
+        run: python3 tools/pe-headless/test_usb_bridge.py
+      - name: Render inspector reference screenshot
+        run: |
+          xvfb-run -a python3 tools/pe-headless/view.py \
+            --demo --source render_raytracer.py \
+            --screenshot build/devtools-inspector.png
+          file build/devtools-inspector.png
+      - name: Upload inspector screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: pe-headless-tk-inspector-screenshot
+          path: build/devtools-inspector.png
+          if-no-files-found: error
