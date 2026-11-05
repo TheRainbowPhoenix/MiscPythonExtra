@@ -13,7 +13,7 @@ def load_events(path, max_lines=1000):
     # Stay bounded even if a remote session emits a huge number of packets.
     with source.open("rb") as stream:
         size=stream.seek(0,2)
-        stream.seek(max(0,size-512*1024))
+        stream.seek(max(0,size-4*1024*1024))
         if stream.tell():
             stream.readline()
         data=stream.readlines()
@@ -26,5 +26,5 @@ def load_events(path, max_lines=1000):
         if not isinstance(event,dict):
             continue
         out.append({key:event.get(key) for key in
-                    ("time","direction","kind","size","preview","packet_type")})
+                    ("time","direction","kind","size","preview","payload_hex","truncated","packet_type")})
     return out
