@@ -37,7 +37,7 @@ OP_COLORS = {
 class Inspector:
     def __init__(self, root, reader=None, source=None, demo=False, remote_log=None):
         self.root = root
-        root.title("PythonExtra — Web Inspector")
+        root.title("PythonExtra Inspector")
         root.geometry("1230x780")
         root.configure(bg=CHROME)
         self.reader = reader
@@ -192,7 +192,7 @@ class Inspector:
         toolbar.pack(fill="x")
         toolbar.pack_propagate(False)
         if recording:
-            self.record_btn=tk.Button(toolbar,text="● Record",
+            self.record_btn=tk.Button(toolbar,text="Record",
                 fg="#d65054",bg="#fafafa",borderwidth=0,
                 font=("Segoe UI",10,"bold"),command=self.toggle_record)
             self.record_btn.pack(side="left",padx=(12,7))
@@ -330,7 +330,7 @@ class Inspector:
         detail_panel = tk.Frame(split, bg="white", width=280)
         split.add(events_panel, minsize=330)
         split.add(detail_panel, minsize=210)
-        self._label(events_panel, "Drawing calls — selected frame",
+        self._label(events_panel, "Drawing calls - selected frame",
                     bg="#fbfbfb", anchor="w", font=("Arial", 10, "bold")).pack(fill="x", ipady=9, padx=6)
         fields=("call", "time", "cost")
         self.tree = ttk.Treeview(events_panel, columns=fields, show="headings",
@@ -437,7 +437,7 @@ class Inspector:
         self.frame_list.delete(0,"end")
         for i,frame in enumerate(frames):
             elapsed=sum(e.duration_ns for e in frame)/1e6
-            self.frame_list.insert("end","▧  Frame %-5d    %8.3f ms" % (i+1,elapsed))
+            self.frame_list.insert("end","Frame %-5d    %8.3f ms" % (i+1,elapsed))
         if frames:
             self.selected_frame=min(self.selected_frame,len(frames)-1)
             self.frame_list.selection_set(self.selected_frame)
@@ -562,7 +562,7 @@ class Inspector:
         if isinstance(self.reader, SharedMemoryTraceReader):
             self.reader.recording(enabled)
         self.recording=enabled
-        self.record_btn.configure(text="■ Stop" if enabled else "● Record",
+        self.record_btn.configure(text="Stop" if enabled else "● Record",
                                   fg="#b72e2e" if enabled else "#dc5657")
         self.status.configure(text="Recording" if enabled else "Recording stopped")
 
