@@ -38,15 +38,15 @@ def receive(sock):
 def response(command):
     text=command.decode("utf-8","replace").strip()
     if text=="CMD|poll":
-        data=("SYS|SYNC|"+datetime.datetime.now().strftime("%H:%M:%S")+"\\n").encode("ascii")
+        data=("SYS|SYNC|"+datetime.datetime.now().strftime("%H:%M:%S")+"\n").encode("ascii")
     elif text.startswith("CMD|switch|"):
-        data=b"SYS|Switched\\n"
+        data=b"SYS|Switched\n"
     elif text.startswith("SAY|"):
         # Keep the response <64 total bytes for the original CPChat.py
         # single USB read. Messages sent by the guest are not truncated.
-        data=("MSG|Bot|"+text[4:][:9]+"\\n").encode("ascii","replace")
+        data=("MSG|Bot|"+text[4:][:9]+"\n").encode("ascii","replace")
     else:
-        data=b"SYS|Ready\\n"
+        data=b"SYS|Ready\n"
     return packet(data)
 
 def main():
