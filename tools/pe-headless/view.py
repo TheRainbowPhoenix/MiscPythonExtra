@@ -134,13 +134,21 @@ class Inspector:
                         padding=(16,9),borderwidth=1)
         style.map("PE.TNotebook.Tab",background=[("selected","#ffffff")],
                   foreground=[("selected","#1676d2")])
-        self.status=self._label(self.root,"Native telemetry  •  USB / Graphics",
+        self.status=self._label(self.root,"Native telemetry | USB / Graphics",
                                 fg=MUTED,bg=CHROME,anchor="w")
         self.status.pack(side="bottom",fill="x",padx=12,ipady=5)
-        self.tabs=ttk.Notebook(self.root,style="PE.TNotebook")
+        # Selected ttk tabs vary in width on some Tk themes. Use a fixed
+        # pixel-width tab strip while retaining the original ttk.Notebook pages.
+        style.layout("PE.Fixed.TNotebook.Tab",[])
+        self.tab_strip=tk.Frame(self.root,bg="#e3e5e8",height=39)
+        self.tab_strip.pack(fill="x")
+        self.tab_strip.pack_propagate(False)
+        self.tabs=ttk.Notebook(self.root,style="PE.Fixed.TNotebook")
         self.tabs.pack(fill="both",expand=True)
         self.pages={}
         self.tab_icons=[]
+        self.tab_boxes={}
+        self.tab_buttons={}
         for title in ("Performance","Console","Sources","Storage",
                       "Timelines","Graphics","Remote"):
             page=tk.Frame(self.tabs,bg="white")
@@ -148,16 +156,34 @@ class Inspector:
             self.tab_icons.append(icon)
             self.tabs.add(page,text=title,image=icon,compound="left")
             self.pages[title]=page
+            frame=tk.Frame(self.tab_strip,width=139 if title=="Performance" else 112,
+                           height=38,bg="#e5e6e8",highlightthickness=1,
+                           highlightbackground="#c9cbd0")
+            frame.pack(side="left",fill="y")
+            frame.pack_propagate(False)
+            button=tk.Label(frame,text=title,image=icon,compound="left",
+                font=("Segoe UI",9),padx=7,cursor="hand2",anchor="center",
+                bg="#e5e6e8",fg="#555961")
+            button.pack(fill="both",expand=True)
+            for control in (frame,button):
+                control.bind("<Button-1>",lambda e,t=title:self.tabs.select(self.pages[t]))
+            self.tab_boxes[title]=frame
+            self.tab_buttons[title]=button
         self.tabs.bind("<<NotebookTabChanged>>",self._tab_changed)
         # Keep the original Performance landing page, except the screenshot
         # demo where Graphics is the feature being previewed.
         landing="Graphics" if self.demo else "Performance"
         self.tabs.select(self.pages[landing])
-        self.show_tab(landing)
+        self._tab_changed()
 
     def _tab_changed(self,event=None):
         index=self.tabs.index(self.tabs.select())
         title=self.tabs.tab(index,"text")
+        for name,button in self.tab_buttons.items():
+            active=name==title
+            background="#ffffff" if active else "#e5e6e8"
+            button.configure(bg=background,fg="#1877bf" if active else "#555961")
+            self.tab_boxes[name].configure(bg=background)
         self.show_tab(title)
 
     def _toolbar(self, parent, recording=False):
@@ -295,9 +321,9 @@ class Inspector:
         right = tk.Frame(pane, bg="white")
         pane.add(left, minsize=300, width=320)
         pane.add(right, minsize=560)
-        self._label(left, "▣  Canvas 1 — PythonExtra gint", bg="#f5f5f6",
+        self._label(left, "Canvas 1 - PythonExtra gint", bg="#f5f5f6",
                     font=("Arial", 10, "bold"), anchor="w").pack(fill="x", ipady=9, padx=1)
-        self._label(left, "▾  Recording 1", bg="white", anchor="w",
+        self._label(left, "Recording 1", bg="white", anchor="w",
                     fg="#4f87c3").pack(fill="x", padx=18, pady=(9, 4))
         self._label(left, "Frames", bg="white", font=("Arial", 10, "bold"),
                     anchor="w").pack(fill="x", padx=14, pady=(8, 5))
@@ -309,7 +335,7 @@ class Inspector:
         self._label(left, "Select a frame to inspect its drawing calls",
                     bg="#f7f7f8", fg=MUTED, font=("Arial", 9),
                     anchor="w").pack(fill="x", ipady=8)
-        self._label(right, "Overview  ›  Canvas 1  ›  Recording 1",
+        self._label(right, "Overview / Canvas 1 / Recording 1",
                     bg="#f8f8f9", fg="#3b444d",
                     font=("Arial", 10, "bold"), anchor="w").pack(fill="x", ipady=11)
         self.timeline = tk.Canvas(right, height=120, bg="#fbfbfc",
@@ -361,7 +387,7 @@ class Inspector:
         self._update_frames()
 
     def _timelines(self):
-        self._label(self.body, "Timeline Recording 1   ›   Layout & Rendering",
+        self._label(self.body, "Timeline Recording 1 / Layout & Rendering",
                     bg="#f5f5f6", anchor="w",
                     font=("Arial", 11, "bold")).pack(fill="x", ipady=10)
         self.timeline=tk.Canvas(self.body, bg="#fcfcfd", highlightthickness=0)
@@ -370,7 +396,7 @@ class Inspector:
         self._draw_timeline(multi=True)
 
     def _sources(self):
-        self._label(self.body, "Sources  ›  Python programs", anchor="w",
+        self._label(self.body, "Sources / Python programs", anchor="w",
                     bg="#f4f4f5").pack(fill="x", ipady=10)
         editor=tk.Text(self.body, wrap="none", bg="#fcfcfe", fg=TEXT,
                        font=("Consolas", 11), relief="flat", padx=17, pady=12)
@@ -384,7 +410,7 @@ class Inspector:
         editor.configure(state="disabled")
 
     def _console(self):
-        self._label(self.body, "Console  ›  Evaluations     Errors     Warnings     Logs",
+        self._label(self.body, "Console / Evaluations     Errors     Warnings     Logs",
                     bg="#f7f7f7", anchor="w").pack(fill="x", ipady=9)
         self.console=tk.Text(self.body, bg="white", fg=TEXT,
                              font=("Consolas", 11), relief="flat", padx=15, pady=12)
@@ -605,7 +631,7 @@ class Inspector:
         except queue.Empty:
             pass
         if received:
-            self.status.configure(text="%d frames · %d draw calls" %
+            self.status.configure(text="%d frames | %d draw calls" %
                                  (len(self.frames.frames),self.frames.total_events))
             if self.tab=="Graphics":
                 at_end=self.selected_frame >= max(0,len(self.frames.frames)-received-1)
@@ -642,7 +668,7 @@ class Inspector:
                 ts+=1400000
             ts+=28000000
         self.selected_frame=15
-        self.status.configure(text="Demo · 68 captured frames")
+        self.status.configure(text="Demo | 68 captured frames")
 
     def _close(self):
         if self.worker:
