@@ -104,7 +104,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--port",type=int,default=8765)
     p.add_argument("--run",type=Path,help="run unchanged spu-tools script")
-    p.add_argument("command",nargs="?",choices=("ping","exec","status","stop"))
+    p.add_argument("command",nargs="?")
     p.add_argument("rest",nargs=argparse.REMAINDER)
     args, extras=p.parse_known_args()
     if args.run:
@@ -112,7 +112,7 @@ def main():
         return
     if extras:
         p.error("unexpected arguments: "+" ".join(extras))
-    if args.command is None:
+    if args.command not in ("ping","exec","status","stop"):
         p.error("select ping, exec, status, stop or --run")
     with FramedClient(args.port) as client:
         if args.command=="ping":
