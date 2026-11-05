@@ -47,10 +47,6 @@ class RemotePanel:
         self.events=[]
         self.selected=None
         self.images=(arrow(True),arrow(False))
-        self.status=tk.Label(parent,text="USB packet trace | Serial: not implemented",
-                             font=("Segoe UI",10),bg="#fafafa",fg="#7d858e",
-                             anchor="w",padx=12,pady=8)
-        self.status.pack(fill="x")
         filters=tk.Frame(parent,bg="white")
         filters.pack(fill="x",padx=12,pady=8)
         tk.Label(filters,text="USB",bg="white",font=("Segoe UI",10,"bold")).pack(side="left",padx=(2,10))
@@ -71,12 +67,12 @@ class RemotePanel:
         self.panes.add(left,weight=1)
         self.panes.add(right,weight=1)
         self.root.after_idle(lambda:self.panes.sashpos(0,530))
-        cols=("time","direction","kind","length")
+        cols=("time","kind","length")
         self.tree=ttk.Treeview(left,columns=cols,show="tree headings",selectmode="browse")
         self.tree.heading("#0",text="")
         self.tree.column("#0",width=30,stretch=False)
-        for key,text,width in (("time","Time",125),("direction","Direction",100),
-                               ("kind","Packet",115),("length","Length",75)):
+        for key,text,width in (("time","Time",125),
+                               ("kind","Packet",170),("length","Length",75)):
             self.tree.heading(key,text=text)
             self.tree.column(key,width=width,stretch=key=="kind")
         self.tree.tag_configure("sent",foreground="#328d55")
@@ -87,6 +83,9 @@ class RemotePanel:
         self.tree.pack(fill="both",expand=True)
         self.tree.bind("<<TreeviewSelect>>",self.select)
         self.tree.bind("<Double-Button-1>",self.popup)
+        self.tree.bind("<Motion>",self.hover)
+        self.tree.bind("<Leave>",self.unhover)
+        self.tooltip=None
         tk.Label(right,text="Packet bytes | Hex + ASCII",bg="#fafafa",
                  font=("Segoe UI",10,"bold"),padx=9,pady=9,anchor="w").pack(fill="x")
         self.detail=tk.Text(right,wrap="none",font=("Consolas",10),
@@ -124,16 +123,41 @@ class RemotePanel:
             self.tree.insert("","end",iid=str(i),
                image=self.images[0 if outgoing else 1],
                tags=("sent" if outgoing else "recv",),
-               values=(stamp,short,item.get("kind","USB"),
+               values=(stamp,item.get("kind","USB"),
                        str(item.get("size",0))+" B"))
             visible+=1
-        self.status.configure(text="%d USB packets | Serial: not implemented"%visible)
         if old is not None and str(old) in self.tree.get_children():
             self.tree.selection_set(str(old))
             self.select()
         elif self.tree.get_children():
             self.tree.selection_set(self.tree.get_children()[0])
             self.select()
+
+    def unhover(self,event=None):
+        if self.tooltip is not None:
+            self.tooltip.destroy()
+            self.tooltip=None
+
+    def hover(self,event):
+        if self.tree.identify_column(event.x)!="#0":
+            self.unhover()
+            return
+        row=self.tree.identify_row(event.y)
+        if not row:
+            self.unhover()
+            return
+        sent,_=direction(self.events[int(row)])
+        label="PY -> Host (sent)" if sent else "PY <- Host (received)"
+        if self.tooltip is not None and self.tooltip.label_text==label:
+            return
+        self.unhover()
+        tip=tk.Toplevel(self.root)
+        tip.overrideredirect(True)
+        tip.label_text=label
+        tk.Label(tip,text=label,bg="#fffde4",fg="#20242a",
+                 borderwidth=1,relief="solid",padx=6,pady=3).pack()
+        tip.geometry("+%d+%d"%(event.x_root+12,event.y_root+14))
+        self.tooltip=tip
 
     def select(self,event=None):
         chosen=self.tree.selection()
