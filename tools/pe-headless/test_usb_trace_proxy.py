@@ -67,5 +67,25 @@ class ProxyTests(unittest.TestCase):
             self.assertEqual(events[0]["direction"],"Host -> MicroPython")
             self.assertEqual(events[1]["direction"],"MicroPython -> Host")
 
+
+    def test_cpchat_fxlink_frames_and_backend(self):
+        from usb_trace_proxy import PacketDecoder
+        from cpchat_backend import response, FXLINK
+        captured=[]
+        guest=PacketDecoder("MicroPython -> Host",captured.append)
+        outgoing=FXLINK.pack(0x100,9,2048,b"python",b"text")+b"CMD|poll\n"
+        for part in (outgoing[:2],outgoing[2:17],outgoing[17:]):
+            guest.feed(part)
+        self.assertEqual(len(captured),1)
+        self.assertEqual(captured[0]["kind"],"fxlink python/text")
+        self.assertEqual(bytes.fromhex(captured[0]["payload_hex"]),b"CMD|poll\n")
+        answer=response(b"CMD|poll\n")
+        self.assertLess(len(answer),64)
+        host=PacketDecoder("Host -> MicroPython",captured.append)
+        host.feed(answer[:10])
+        host.feed(answer[10:])
+        self.assertEqual(captured[1]["kind"],"fxlink python/text")
+        self.assertTrue(bytes.fromhex(captured[1]["payload_hex"]).startswith(b"SYS|SYNC|"))
+
 if __name__=="__main__":
     unittest.main()
