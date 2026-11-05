@@ -24,23 +24,6 @@ def main():
           env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     script=Path(__file__).with_name("run_spu_remote_screen.py").resolve()
     try:
-        deadline=time.monotonic()+12
-        while time.monotonic()<deadline:
-            if guest.poll() is not None:
-                raise RuntimeError("remote MicroPython server exited early")
-            # Wait for socket readiness without stealing the server's
-            # single USB session: guest accepts exactly one connection.
-            try:
-                with socket.socket() as probe:
-                    probe.settimeout(.1)
-                    if probe.connect_ex(("127.0.0.1",port))==0:
-                        # The test server is single-shot, so do not probe!
-                        raise RuntimeError("probe would steal remote session")
-            except RuntimeError:
-                raise
-            except OSError:
-                pass
-            break
         result=subprocess.run([sys.executable,str(script),
               "--spu-tools",str(args.spu_tools.resolve()),
               "--port",str(port),"--frames",str(args.frames),"--delay","0"],
