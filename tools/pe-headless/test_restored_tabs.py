@@ -51,7 +51,7 @@ class Tabs(unittest.TestCase):
             app.remote_panel.select()
             self.assertIn("00 41 FF 42",app.remote_detail.get("1.0","end"))
             app.remote_panel.popup()
-            self.assertTrue([x for x in root.winfo_children() if isinstance(x,tk.Toplevel)])
+            self.assertTrue([x for x in app.pages["Remote"].winfo_children() if isinstance(x,tk.Toplevel)])
 
         finally:
             root.destroy()
