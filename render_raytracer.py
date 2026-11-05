@@ -28,41 +28,41 @@ def run():
 
     cam_z = -3.0  # Camera position
 
-    # Loop over every pixel of the SMALL resolution
-    for y in range(H):
-        v = (1.0 - 2.0 * y / H) # Map Y to [-1, 1]
-        
-        for x in range(W):
-            u = (2.0 * x / W - 1.0) # Map X to [-1, 1]
+    # Precompute values constant across columns/rows and static spheres.
+    # One divide per ray/light replaces three divides of the same quantity.
+    ray_us = [2.0 * x / W - 1.0 for x in range(W)]
+    ray_vs = [1.0 - 2.0 * y / H for y in range(H)]
+    cached_spheres = []
+    for sx, sy, sz, sr, sc in spheres:
+        oz = cam_z - sz
+        cached_spheres.append((-sx, -sy, oz,
+                               sx*sx + sy*sy + oz*oz - sr*sr,
+                               sx, sy, sz, sr, sc))
+    ro_x, ro_y, ro_z = 0.0, 0.0, cam_z
+
+    for y, v in enumerate(ray_vs):
+        for x, u in enumerate(ray_us):
             
             # 1. Ray Generation
             # Perspective projection
-            rd_x, rd_y, rd_z = u, v, 1.5 
-            # Normalize direction
-            d = sqrt(rd_x*rd_x + rd_y*rd_y + rd_z*rd_z)
-            rd_x, rd_y, rd_z = rd_x/d, rd_y/d, rd_z/d
-            
-            ro_x, ro_y, ro_z = 0.0, 0.0, cam_z
+            d = sqrt(u*u + v*v + 2.25)
+            rd_x, rd_y, rd_z = u/d, v/d, 1.5/d
             
             # 2. Intersection
             closest_t = 99.0
             hit_obj = None
             
             # Check Spheres
-            for s in spheres:
-                sx, sy, sz, sr, sc = s
-                # Vector Sphere->Origin
-                ox, oy, oz = ro_x - sx, ro_y - sy, ro_z - sz
-                
+            for s in cached_spheres:
+                ox, oy, oz, c, sx, sy, sz, sr, sc = s
                 b = ox*rd_x + oy*rd_y + oz*rd_z
-                c = (ox*ox + oy*oy + oz*oz) - sr*sr
                 h = b*b - c
                 
                 if h > 0:
                     t = -b - sqrt(h)
                     if 0.01 < t < closest_t:
                         closest_t = t
-                        hit_obj = s
+                        hit_obj = (sx, sy, sz, sr, sc)
             
             # Check Checkerboard Floor (y = -1)
             if rd_y < -0.001: 
@@ -89,8 +89,8 @@ def run():
                 else:
                     sx, sy, sz, sr, sc = hit_obj
                     nx, ny, nz = px - sx, py - sy, pz - sz
-                    n_inv = 1.0 / sr
-                    nx, ny, nz = nx*n_inv, ny*n_inv, nz*n_inv
+                    inv_r = 1.0 / sr
+                    nx, ny, nz = nx*inv_r, ny*inv_r, nz*inv_r
                     base_c = sc
 
                 # Lighting Calculation (Diffuse)
@@ -101,7 +101,6 @@ def run():
                     # Normalize
                     l_dist = sqrt(lvx*lvx + lvy*lvy + lvz*lvz)
                     lvx, lvy, lvz = lvx/l_dist, lvy/l_dist, lvz/l_dist
-                    
                     dot = nx*lvx + ny*lvy + nz*lvz
                     if dot > 0:
                         intensity += dot * 0.6 

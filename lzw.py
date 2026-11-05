@@ -15,7 +15,7 @@ def compress(data: bytes) -> list:
     compressed_data = []
     
     for i in range(len(mv)):
-        c = mv[i:i+1].tobytes() # Need bytes for dict key
+        c = bytes(mv[i:i+1]) # MicroPython-compatible buffer conversion
         wc = w + c
         if wc in dictionary:
             w = wc

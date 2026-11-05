@@ -1,0 +1,79 @@
+name: Headless inspector checks
+on:
+  push:
+    paths:
+      - 'tools/pe-headless/**'
+      - '.github/workflows/pe-headless.yml'
+  pull_request:
+    paths:
+      - 'tools/pe-headless/**'
+      - '.github/workflows/pe-headless.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspector:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tk screenshot requirements
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-tk python3-pil xvfb
+      - name: Test binary event parser and SHM recording
+        run: python3 tools/pe-headless/test_drawtrace.py
+      - name: Test standalone USB bridge
+        run: python3 tools/pe-headless/test_usb_bridge.py
+      - name: Verify optimized raytracer emits identical frame pixels
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'tools/pe-headless')
+          from profile_raytracer import capture_pixels
+          a=capture_pixels('tools/pe-headless/fixtures/raytracer_baseline.py')
+          b=capture_pixels('render_raytracer.py')
+          assert a == b, 'optimized raytracer changed screen output'
+          print('PASS:',len(a['frames']),'identical RGB565 frames')
+          PY
+      - name: Test end-to-end Remote USB traffic inspector proxy
+        run: python3 tools/pe-headless/test_usb_trace_proxy.py
+
+      - name: Test original icon tabs and USB packet decoding
+        run: xvfb-run -a python3 tools/pe-headless/test_restored_tabs.py
+
+      - name: Verify CPChat cinput idle rendering and USB polling
+        run: python3 tools/pe-headless/test_cpchat_optimized.py
+
+      - name: Render inspector reference screenshot
+        run: |
+          xvfb-run -a python3 tools/pe-headless/view.py \
+            --demo --source render_raytracer.py \
+            --screenshot build/devtools-inspector.png
+          file build/devtools-inspector.png
+      - name: Render Remote USB packet trace UI
+        run: |
+          mkdir -p build
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          examples=[
+             {"time":"2026-11-05T01:12:00.123Z","direction":"Host → MicroPython","kind":"PING","size":9,"preview":"73 70 75 2d 74 6f 6f 6c 73"},
+             {"time":"2026-11-05T01:12:00.125Z","direction":"MicroPython → Host","kind":"PING","size":13,"preview":"00 00 00 05 73 70 75 2d 74 6f 6f 6c 73"},
+             {"time":"2026-11-05T01:12:00.130Z","direction":"Host → MicroPython","kind":"EXEC","size":8,"preview":"70 72 69 6e 74 28 31 29"},
+             {"time":"2026-11-05T01:12:00.132Z","direction":"MicroPython → Host","kind":"EXEC","size":2,"preview":"31 0a"},
+          ]
+          Path("build/usb.jsonl").write_text("".join(json.dumps(e)+chr(10) for e in examples))
+          PY
+          xvfb-run -a python3 tools/pe-headless/view.py \
+             --remote-log build/usb.jsonl --screenshot-tab Remote \
+             --screenshot build/remote-inspector.png
+
+      - name: Upload inspector screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: pe-headless-tk-inspector-screenshot
+          path: |
+            build/devtools-inspector.png
+            build/remote-inspector.png
+          if-no-files-found: error
