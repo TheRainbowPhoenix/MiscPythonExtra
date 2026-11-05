@@ -35,7 +35,7 @@ OP_COLORS = {
 
 
 class Inspector:
-    def __init__(self, root, reader=None, source=None, demo=False):
+    def __init__(self, root, reader=None, source=None, demo=False, remote_log=None):
         self.root = root
         root.title("PythonExtra — Web Inspector")
         root.geometry("1230x780")
@@ -51,6 +51,8 @@ class Inspector:
         self.tab = "Graphics"
         self.preview_picture = None
         self.vars = {}
+        self.remote_log = remote_log
+        self.remote_events = []
         self._style()
         self._layout()
         if demo:
@@ -83,56 +85,202 @@ class Inspector:
                         fg=kw.pop("fg", TEXT), font=kw.pop("font", ("Arial", 10)),
                         **kw)
 
+    @staticmethod
+    def tab_icon(title, color="#81858a"):
+        """Original pe-headless's dependency-free 16px inspector glyphs."""
+        image = tk.PhotoImage(width=16, height=16)
+        def line(x0,y0,x1,y1):
+            steps=max(abs(x1-x0),abs(y1-y0),1)
+            for i in range(steps+1):
+                image.put(color,(round(x0+(x1-x0)*i/steps),
+                                 round(y0+(y1-y0)*i/steps)))
+        def box(x0,y0,x1,y1):
+            for a,b,c,d in ((x0,y0,x1,y0),(x1,y0,x1,y1),
+                            (x1,y1,x0,y1),(x0,y1,x0,y0)):
+                line(a,b,c,d)
+        if title == "Performance":
+            box(1,2,14,13)
+            for a,b,c,d in ((3,10,5,7),(5,7,7,9),(7,9,10,4),(10,4,12,6)):
+                line(a,b,c,d)
+        elif title == "Console":
+            box(1,2,14,13);line(4,5,7,7);line(7,7,4,9);line(8,10,11,10)
+        elif title == "Sources":
+            box(3,1,12,14);line(9,1,9,4);line(9,4,12,4)
+            for y in (7,9,11): line(5,y,10,y)
+        elif title == "Storage":
+            box(2,3,13,12)
+            for y in (5,8,11):line(3,y,12,y)
+            line(4,2,11,2);line(4,13,11,13)
+        elif title == "Remote":
+            box(3,1,12,9);line(4,4,11,4);box(5,2,6,3);box(9,2,10,3)
+            box(5,10,10,12);line(7,13,7,15);line(8,13,8,15)
+        elif title == "Timelines":
+            box(1,3,14,12)
+            for x,h in ((4,3),(7,7),(10,5),(12,8)):
+                line(x,11,x,11-h)
+        elif title == "Graphics":
+            box(2,3,13,12);box(4,5,6,7)
+            line(3,11,7,8);line(7,8,9,10);line(9,10,12,6)
+        else:
+            box(2,2,13,13)
+        return image
+
     def _layout(self):
-        tabs = tk.Frame(self.root, bg=CHROME, height=39,
-                        highlightbackground=EDGE, highlightthickness=1)
-        tabs.pack(fill="x")
-        tabs.pack_propagate(False)
-        for tab in ("Elements", "Console", "Sources", "Network",
-                    "Timelines", "Storage", "Graphics", "Layers", "Audit"):
-            button = tk.Button(tabs, text=tab, font=("Arial", 10),
-                               relief="flat", borderwidth=0, cursor="hand2",
-                               bg=CHROME, fg="#626a74", padx=13,
-                               activebackground="#dfecf8",
-                               command=lambda t=tab: self.show_tab(t))
-            button.pack(side="left", fill="y", padx=(0, 1))
-            self.vars[tab] = button
-        self.toolbar = tk.Frame(self.root, bg="#fafafa", height=40,
-                                highlightbackground=EDGE, highlightthickness=1)
-        self.toolbar.pack(fill="x")
-        self.toolbar.pack_propagate(False)
-        self.record_btn = tk.Button(self.toolbar, text="● Record",
-            fg="#dc5657", bg="#fafafa", borderwidth=0, font=("Arial", 10, "bold"),
-            command=self.toggle_record)
-        self.record_btn.pack(side="left", padx=(14, 7))
-        ttk.Button(self.toolbar, text="Import", command=self.import_trace).pack(side="left", padx=3)
-        ttk.Button(self.toolbar, text="Export", command=self.export).pack(side="left", padx=3)
-        self._label(self.toolbar, "Events", fg="#539bd4",
-                    font=("Arial", 10, "bold"), bg="#fafafa").pack(side="left", padx=(20, 8))
-        self._label(self.toolbar, "Frames", bg="#fafafa").pack(side="left", padx=8)
-        self.status = self._label(self.toolbar, "No recording loaded", fg=MUTED, bg="#fafafa")
-        self.status.pack(side="right", padx=16)
-        self.body = tk.Frame(self.root, bg="white")
-        self.body.pack(fill="both", expand=True)
+        # Original pe-headless notebook and cute monochrome custom icons.
+        style=ttk.Style(self.root)
+        style.configure("PE.TNotebook",background=CHROME,borderwidth=0,tabmargins=0)
+        style.configure("PE.TNotebook.Tab",font=("Segoe UI",10),
+                        padding=(16,9),borderwidth=1)
+        style.map("PE.TNotebook.Tab",background=[("selected","#ffffff")],
+                  foreground=[("selected","#1676d2")])
+        self.tabs=ttk.Notebook(self.root,style="PE.TNotebook")
+        self.tabs.pack(fill="both",expand=True)
+        self.pages={}
+        self.tab_icons=[]
+        for title in ("Performance","Console","Sources","Storage",
+                      "Timelines","Graphics","Remote"):
+            page=tk.Frame(self.tabs,bg="white")
+            icon=self.tab_icon(title)
+            self.tab_icons.append(icon)
+            self.tabs.add(page,text=title,image=icon,compound="left")
+            self.pages[title]=page
+        self.tabs.bind("<<NotebookTabChanged>>",self._tab_changed)
+        # Everything below remains per-tab: never inject unrelated browser tabs.
         self.show_tab("Graphics")
 
-    def show_tab(self, tab):
-        self.tab = tab
-        for name, widget in self.vars.items():
-            widget.configure(bg="#e2f0ff" if tab == name else CHROME,
-                             fg="#2c78b8" if tab == name else "#626a74")
+    def _tab_changed(self,event=None):
+        index=self.tabs.index(self.tabs.select())
+        title=self.tabs.tab(index,"text")
+        self.show_tab(title)
+
+    def _toolbar(self, parent, recording=False):
+        toolbar=tk.Frame(parent,bg="#fafafa",height=39,
+                         highlightbackground=EDGE,highlightthickness=1)
+        toolbar.pack(fill="x")
+        toolbar.pack_propagate(False)
+        if recording:
+            self.record_btn=tk.Button(toolbar,text="● Record",
+                fg="#d65054",bg="#fafafa",borderwidth=0,
+                font=("Segoe UI",10,"bold"),command=self.toggle_record)
+            self.record_btn.pack(side="left",padx=(12,7))
+        ttk.Button(toolbar,text="Import",command=self.import_trace).pack(side="left",padx=3)
+        ttk.Button(toolbar,text="Export JSON",command=self.export).pack(side="left",padx=3)
+        self.status=self._label(toolbar,"Ready",fg=MUTED,bg="#fafafa")
+        self.status.pack(side="right",padx=15)
+        return toolbar
+
+    def show_tab(self,tab):
+        self.tab=tab
+        self.body=self.pages[tab]
         for child in self.body.winfo_children():
             child.destroy()
-        if tab == "Graphics":
+        # Keep a fixed session status across all the inspector's tabs.
+        self._toolbar(self.body,recording=(tab in ("Graphics","Timelines")))
+        if tab=="Graphics":
             self._graphics()
-        elif tab == "Timelines":
+        elif tab=="Timelines":
             self._timelines()
-        elif tab == "Sources":
+        elif tab=="Sources":
             self._sources()
-        elif tab == "Console":
+        elif tab=="Console":
             self._console()
-        else:
-            self._generic(tab)
+        elif tab=="Performance":
+            self._performance()
+        elif tab=="Storage":
+            self._storage()
+        elif tab=="Remote":
+            self._remote()
+
+    def _performance(self):
+        self._label(self.body,"PythonExtra Performance",bg="#f7f7f8",
+                    font=("Segoe UI",14,"bold"),anchor="w").pack(fill="x",ipady=14,padx=8)
+        self.performance_text=self._label(self.body,"No drawing samples yet",
+                                        bg="white",anchor="w",justify="left",
+                                        font=("Consolas",11))
+        self.performance_text.pack(fill="x",padx=22,pady=18)
+        cols=("method","calls","cpu_ms")
+        tree=ttk.Treeview(self.body,columns=cols,show="headings")
+        for col,title,width in (("method","Native method",200),
+                                ("calls","Calls",100),("cpu_ms","Timed ms",100)):
+            tree.heading(col,text=title)
+            tree.column(col,width=width)
+        tree.pack(fill="both",expand=True,padx=16,pady=10)
+        self.performance_table=tree
+        self._update_performance()
+
+    def _update_performance(self):
+        if self.tab!="Performance" or not hasattr(self,"performance_table"):
+            return
+        events=[event for frame in self.frames.frames for event in frame]
+        for item in self.performance_table.get_children():
+            self.performance_table.delete(item)
+        totals={}
+        for event in events:
+            count,ns=totals.get(event.name,(0,0))
+            totals[event.name]=(count+1,ns+event.duration_ns)
+        for name,(count,ns) in sorted(totals.items(),key=lambda item:-item[1][1]):
+            self.performance_table.insert("","end",values=(name,count,"%.3f"%(ns/1e6)))
+        self.performance_text.configure(text=("%d completed frames  |  %d draw calls\n"
+                            "%.3f ms measured native drawing CPU time" %
+                            (len(self.frames.frames),len(events),
+                             sum(x.duration_ns for x in events)/1e6)))
+
+    def _storage(self):
+        self._label(self.body,"Storage operations",bg="#f7f7f8",
+                    font=("Segoe UI",12,"bold"),anchor="w").pack(fill="x",ipady=10,padx=8)
+        self._label(self.body,"Storage tracing requires an attached full instrumentation "
+                    "session. Graphics recordings contain no filesystem operations.",
+                    bg="white",fg=MUTED,anchor="w").pack(fill="x",padx=18,pady=16)
+
+    def _remote(self):
+        from remote_trace import RemoteLogReader
+        self._label(self.body,"USB / Remote",bg="#f7f7f8",
+                    font=("Segoe UI",12,"bold"),anchor="w").pack(fill="x",ipady=10,padx=8)
+        bar=tk.Frame(self.body,bg="white")
+        bar.pack(fill="x",padx=12,pady=10)
+        self._label(bar,"USB  ●",bg="white",fg="#448aa7").pack(side="left")
+        self.remote_status=self._label(bar,
+               "Listening to USB log" if self.remote_log else "No remote connection configured",
+               bg="white",fg=MUTED)
+        self.remote_status.pack(side="left",padx=14)
+        self._label(bar,"Serial: not implemented",bg="white",fg=MUTED).pack(side="right")
+        columns=("time","direction","kind","bytes","preview")
+        self.remote_tree=ttk.Treeview(self.body,columns=columns,show="headings")
+        for field,label,width in (("time","Time",130),("direction","Direction",100),
+                   ("kind","Packet",120),("bytes","Bytes",80),("preview","Data preview",370)):
+            self.remote_tree.heading(field,text=label)
+            self.remote_tree.column(field,width=width,stretch=field=="preview")
+        self.remote_tree.pack(fill="both",expand=True,padx=12)
+        self.remote_tree.bind("<<TreeviewSelect>>",self._remote_select)
+        self.remote_detail=tk.Text(self.body,height=6,font=("Consolas",10),
+                       bg="#f9fafb",relief="flat",wrap="word")
+        self.remote_detail.pack(fill="x",padx=12,pady=10)
+        self._remote_refresh()
+
+    def _remote_refresh(self):
+        if self.tab!="Remote" or not hasattr(self,"remote_tree"):
+            return
+        from remote_trace import load_events
+        if self.remote_log:
+            try:
+                self.remote_events=load_events(self.remote_log)[-1000:]
+                self.remote_status.configure(text="%d USB events"%len(self.remote_events))
+            except (OSError,ValueError) as error:
+                self.remote_status.configure(text="USB log: "+str(error))
+        for item in self.remote_tree.get_children():
+            self.remote_tree.delete(item)
+        for index,event in enumerate(self.remote_events[-1000:]):
+            self.remote_tree.insert("","end",iid=str(index),
+                  values=(event.get("time",""),event.get("direction",""),
+                    event.get("kind","data"),event.get("size",0),
+                    event.get("preview","")))
+
+    def _remote_select(self,event=None):
+        selection=self.remote_tree.selection()
+        if not selection:return
+        item=self.remote_events[int(selection[0])]
+        self.remote_detail.delete("1.0","end")
+        self.remote_detail.insert("end",json.dumps(item,indent=2,ensure_ascii=False))
 
     def _graphics(self):
         pane = tk.PanedWindow(self.body, orient="horizontal", bg=EDGE,
@@ -461,6 +609,8 @@ class Inspector:
                 self._update_frames()
             elif self.tab=="Timelines":
                 self._draw_timeline(multi=True)
+            elif self.tab=="Performance":
+                self._update_performance()
         if self.root.winfo_exists():
             self.root.after(50,self._drain)
 
@@ -491,12 +641,13 @@ def main():
     group.add_argument("--shm",type=Path,help="full Windows PE_MAP screen.mmap")
     group.add_argument("--demo",action="store_true",help="show built-in example recording")
     p.add_argument("--source",type=Path,help="program to inspect in Sources tab")
+    p.add_argument("--remote-log",type=Path,help="JSONL USB trace produced by the loopback proxy")
     p.add_argument("--screenshot",type=Path,help="capture UI screenshot for CI")
     args=p.parse_args()
     reader=FileTraceReader(args.trace) if args.trace else (
         SharedMemoryTraceReader(args.shm) if args.shm else None)
     root=tk.Tk()
-    app=Inspector(root,reader=reader,source=args.source,demo=args.demo)
+    app=Inspector(root,reader=reader,source=args.source,demo=args.demo,remote_log=args.remote_log)
     if args.screenshot:
         def capture():
             from PIL import ImageGrab
