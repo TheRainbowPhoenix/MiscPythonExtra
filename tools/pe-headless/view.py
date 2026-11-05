@@ -55,6 +55,7 @@ class Inspector:
         self._layout()
         if demo:
             self._make_demo()
+            self._update_frames()
         if reader:
             self.worker = RecorderThread(reader, self.messages)
             self.worker.start()
@@ -139,7 +140,7 @@ class Inspector:
         pane.pack(fill="both", expand=True)
         left = tk.Frame(pane, bg="white", width=325)
         right = tk.Frame(pane, bg="white")
-        pane.add(left, minsize=250)
+        pane.add(left, minsize=300, width=320)
         pane.add(right, minsize=560)
         self._label(left, "▣  Canvas 1 — PythonExtra gint", bg="#f5f5f6",
                     font=("Arial", 10, "bold"), anchor="w").pack(fill="x", ipady=9, padx=1)
