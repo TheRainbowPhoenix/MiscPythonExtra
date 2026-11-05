@@ -265,53 +265,27 @@ class Inspector:
                     bg="white",fg=MUTED,anchor="w").pack(fill="x",padx=18,pady=16)
 
     def _remote(self):
-        self._label(self.body,"USB / Remote",bg="#f7f7f8",
-                    font=("Segoe UI",12,"bold"),anchor="w").pack(fill="x",ipady=10,padx=8)
-        bar=tk.Frame(self.body,bg="white")
-        bar.pack(fill="x",padx=12,pady=10)
-        self._label(bar,"USB  ●",bg="white",fg="#448aa7").pack(side="left")
-        self.remote_status=self._label(bar,
-               "Listening to USB log" if self.remote_log else "No remote connection configured",
-               bg="white",fg=MUTED)
-        self.remote_status.pack(side="left",padx=14)
-        self._label(bar,"Serial: not implemented",bg="white",fg=MUTED).pack(side="right")
-        columns=("time","direction","kind","bytes","preview")
-        self.remote_tree=ttk.Treeview(self.body,columns=columns,show="headings")
-        for field,label,width in (("time","Time",130),("direction","Direction",100),
-                   ("kind","Packet",120),("bytes","Bytes",80),("preview","Data preview",370)):
-            self.remote_tree.heading(field,text=label)
-            self.remote_tree.column(field,width=width,stretch=field=="preview")
-        self.remote_tree.pack(fill="both",expand=True,padx=12)
-        self.remote_tree.bind("<<TreeviewSelect>>",self._remote_select)
-        self.remote_detail=tk.Text(self.body,height=6,font=("Consolas",10),
-                       bg="#f9fafb",relief="flat",wrap="word")
-        self.remote_detail.pack(fill="x",padx=12,pady=10)
+        from remote_panel import RemotePanel
+        self.remote_panel=RemotePanel(self.body,has_log=bool(self.remote_log))
+        self.remote_tree=self.remote_panel.tree
+        self.remote_status=self.remote_panel.status
+        self.remote_detail=self.remote_panel.detail
         self._remote_refresh()
 
     def _remote_refresh(self):
-        if self.tab!="Remote" or not hasattr(self,"remote_tree"):
+        if self.tab!="Remote" or not hasattr(self,"remote_panel"):
             return
         from remote_trace import load_events
         if self.remote_log:
             try:
                 self.remote_events=load_events(self.remote_log)[-1000:]
-                self.remote_status.configure(text="%d USB events"%len(self.remote_events))
             except (OSError,ValueError) as error:
                 self.remote_status.configure(text="USB log: "+str(error))
-        for item in self.remote_tree.get_children():
-            self.remote_tree.delete(item)
-        for index,event in enumerate(self.remote_events[-1000:]):
-            self.remote_tree.insert("","end",iid=str(index),
-                  values=(event.get("time",""),event.get("direction",""),
-                    event.get("kind","data"),event.get("size",0),
-                    event.get("preview","")))
+        self.remote_panel.update(self.remote_events)
 
     def _remote_select(self,event=None):
-        selection=self.remote_tree.selection()
-        if not selection:return
-        item=self.remote_events[int(selection[0])]
-        self.remote_detail.delete("1.0","end")
-        self.remote_detail.insert("end",json.dumps(item,indent=2,ensure_ascii=False))
+        if hasattr(self,"remote_panel"):
+            self.remote_panel.select(event)
 
     def _graphics(self):
         pane = tk.PanedWindow(self.body, orient="horizontal", bg=EDGE,
