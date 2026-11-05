@@ -349,6 +349,23 @@ class Inspector:
             return
         canvas.delete("all")
         w=max(210,canvas.winfo_width()); h=max(250,canvas.winfo_height())
+        if isinstance(self.reader,SharedMemoryTraceReader):
+            # Read published RGB565 pixels directly from the versioned SHM
+            # mapping. No data is requested from, or serialized by, the VM.
+            raw=self.reader.framebuffer()
+            if raw is not None:
+                try:
+                    from PIL import Image, ImageTk
+                    picture=Image.frombytes("RGB",(320,528),raw,"raw","BGR;16")
+                    factor=min((w-20)/320,(h-20)/528)
+                    size=(max(1,int(320*factor)),max(1,int(528*factor)))
+                    picture=picture.resize(size,Image.Resampling.NEAREST)
+                    self.preview_picture=ImageTk.PhotoImage(picture)
+                    canvas.create_image(w/2,h/2,image=self.preview_picture)
+                    return
+                except (ImportError,ValueError):
+                    # Fall back to geometry when optional Pillow is missing.
+                    pass
         # A command footprint preview for trace-only builds, not raster output.
         scale=min((w-22)/320,(h-22)/528)
         ox=(w-320*scale)/2;oy=(h-528*scale)/2
