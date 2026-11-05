@@ -36,6 +36,9 @@ jobs:
           assert a == b, 'optimized raytracer changed screen output'
           print('PASS:',len(a['frames']),'identical RGB565 frames')
           PY
+      - name: Test original icon tabs and USB packet decoding
+        run: xvfb-run -a python3 tools/pe-headless/test_restored_tabs.py
+
       - name: Render inspector reference screenshot
         run: |
           xvfb-run -a python3 tools/pe-headless/view.py \
