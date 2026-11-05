@@ -16,7 +16,7 @@ python3 tools/pe-headless/spu_tcp.py --port 8765 stop
 
 # Profile and compare the raytracer in a native headless build
 python3 tools/pe-headless/profile_raytracer.py --exe /path/to/micropython \
-  --original render_raytracer.py --optimized render_raytracer_fast.py \
+  --original tools/pe-headless/fixtures/raytracer_baseline.py --optimized render_raytracer.py \
   --json /tmp/raytracer-profile.json
 
 # Preview the Tk inspector without an instrumented process
