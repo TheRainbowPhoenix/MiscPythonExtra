@@ -661,6 +661,7 @@ def main():
     p.add_argument("--source",type=Path,help="program to inspect in Sources tab")
     p.add_argument("--remote-log",type=Path,help="JSONL USB trace produced by the loopback proxy")
     p.add_argument("--screenshot",type=Path,help="capture UI screenshot for CI")
+    p.add_argument("--screenshot-tab",default="Graphics",choices=("Performance","Console","Sources","Storage","Timelines","Graphics","Remote"))
     args=p.parse_args()
     reader=FileTraceReader(args.trace) if args.trace else (
         SharedMemoryTraceReader(args.shm) if args.shm else None)
@@ -668,6 +669,8 @@ def main():
     app=Inspector(root,reader=reader,source=args.source,demo=args.demo,remote_log=args.remote_log)
     if args.screenshot:
         def capture():
+            app.tabs.select(app.pages[args.screenshot_tab])
+            root.update()
             from PIL import ImageGrab
             root.update_idletasks()
             x,y=root.winfo_rootx(),root.winfo_rooty()
