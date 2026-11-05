@@ -65,6 +65,8 @@ class PacketDecoder:
                   "direction":self.direction,"kind":kind,
                   "size":len(payload),
                   "preview":bytes(payload[:96]).hex(" "),
+                  "payload_hex":bytes(payload[:65536]).hex(" "),
+                  "truncated":len(payload)>65536,
                   "packet_type":packet_type})
 
 def proxy(listen, upstream_host, target_port, listen_port, log, stop_after_one=False, ready=None):
@@ -91,8 +93,8 @@ def proxy(listen, upstream_host, target_port, listen_port, log, stop_after_one=F
                 with client,upstream,selectors.DefaultSelector() as watch:
                     client.setblocking(False)
                     upstream.setblocking(False)
-                    a=PacketDecoder("Host → MicroPython",write)
-                    b=PacketDecoder("MicroPython → Host",write)
+                    a=PacketDecoder("Host -> MicroPython",write)
+                    b=PacketDecoder("MicroPython -> Host",write)
                     watch.register(client,selectors.EVENT_READ,(upstream,a))
                     watch.register(upstream,selectors.EVENT_READ,(client,b))
                     while True:
