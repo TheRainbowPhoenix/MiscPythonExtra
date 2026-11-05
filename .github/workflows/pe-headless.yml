@@ -42,6 +42,9 @@ jobs:
       - name: Test original icon tabs and USB packet decoding
         run: xvfb-run -a python3 tools/pe-headless/test_restored_tabs.py
 
+      - name: Verify CPChat cinput idle rendering and USB polling
+        run: python3 tools/pe-headless/test_cpchat_optimized.py
+
       - name: Render inspector reference screenshot
         run: |
           xvfb-run -a python3 tools/pe-headless/view.py \
