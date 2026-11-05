@@ -38,7 +38,7 @@ def main():
     def append(text):
         chat.items.append({"text": text, "type": "item"})
         if len(chat.items) > MAX_HISTORY:
-            del chat.items[:len(chat.items) - MAX_HISTORY]
+            chat.items = chat.items[-MAX_HISTORY:]
         chat.recalc_layout()
         chat.scroll_y = chat.max_scroll
 
@@ -66,12 +66,12 @@ def main():
                         length = int.from_bytes(receive_buffer[4:8], "little")
                         transfer = int.from_bytes(receive_buffer[8:12], "little")
                         if version != 256 or transfer != 2048 or length > 4096:
-                            del receive_buffer[:1]
+                            receive_buffer = receive_buffer[1:]
                             continue
                         if len(receive_buffer) < 44 + length:
                             break
                         payload = bytes(receive_buffer[44:44 + length])
-                        del receive_buffer[:44 + length]
+                        receive_buffer = receive_buffer[44 + length:]
                         pending_read = False
                         for line in payload.split(b"\n"):
                             if not line:
