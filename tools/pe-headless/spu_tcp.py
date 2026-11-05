@@ -88,7 +88,7 @@ def launch_spu_tools(path,arguments,port):
     script=Path(path).resolve()
     sys.path.insert(0,str(script.parent))
     from comm.usbclient import USBClient
-    original=USBClient.connect
+    original=USBClient.__dict__["connect"]
 
     def connect(cls):
         return cls(SocketUSBDevice(port=port),64)
@@ -106,10 +106,12 @@ def main():
     p.add_argument("--run",type=Path,help="run unchanged spu-tools script")
     p.add_argument("command",nargs="?",choices=("ping","exec","status","stop"))
     p.add_argument("rest",nargs=argparse.REMAINDER)
-    args=p.parse_args()
+    args, extras=p.parse_known_args()
     if args.run:
-        launch_spu_tools(args.run,args.rest,args.port)
+        launch_spu_tools(args.run,([args.command] if args.command else [])+args.rest+extras,args.port)
         return
+    if extras:
+        p.error("unexpected arguments: "+" ".join(extras))
     if args.command is None:
         p.error("select ping, exec, status, stop or --run")
     with FramedClient(args.port) as client:
