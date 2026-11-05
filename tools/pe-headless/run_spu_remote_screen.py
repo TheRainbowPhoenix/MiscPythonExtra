@@ -24,7 +24,15 @@ class VirtualUSB:
     """Minimal PyUSB-style socket device accepted by spu-tools USBClient."""
 
     def __init__(self, port):
-        self.sock = socket.create_connection(("127.0.0.1", port), timeout=6)
+        deadline=time.monotonic()+8
+        while True:
+            try:
+                self.sock=socket.create_connection(("127.0.0.1",port),timeout=2)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(.05)
         self.sock.settimeout(6)
 
     def write(self, endpoint, data, timeout=2000):
