@@ -45,6 +45,25 @@ class PacketDecoder:
                 break
             if len(self.data)<8:
                 break
+            # CPChat uses a little-endian 44-byte fxlink header, whereas
+            # spu-tools uses a big-endian 8-byte packet header. Trace both.
+            if self.data[:4] == b"\\x00\\x01\\x00\\x00":
+                if len(self.data)<44:
+                    break
+                version,size,transfer,app,subtype=struct.unpack_from("<III16s16s",self.data)
+                if transfer!=2048 or size>MAX_PACKET:
+                    self._log("INVALID_FXLINK",self.data[:44])
+                    del self.data[:44]
+                    self.raw=True
+                    continue
+                if len(self.data)<44+size:
+                    break
+                data=bytes(self.data[44:44+size])
+                del self.data[:44+size]
+                app=app.split(bytes((0,)),1)[0].decode("ascii","replace")
+                subtype=subtype.split(bytes((0,)),1)[0].decode("ascii","replace")
+                self._log("fxlink %s/%s"%(app,subtype),data)
+                continue
             kind,size=HEADER.unpack_from(self.data)
             if kind not in KINDS and (kind&0xF0000000)!=0xF0000000:
                 self.raw=True
