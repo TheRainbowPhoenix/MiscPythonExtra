@@ -7,6 +7,7 @@ hardware heap or GC benchmark. An actual fxcp profiling run is still needed.
 import importlib
 import pathlib
 import re
+import ast
 import runpy
 import sys
 import time
@@ -75,6 +76,14 @@ def fake_gint():
 
 
 class CPChatTests(unittest.TestCase):
+    def test_micropython_rejects_bytearray_slice_deletion(self):
+        source=SCRIPT.read_text(encoding="utf-8")
+        syntax=ast.parse(source)
+        # The Windows fxcp port does not support del bytearray[:n].
+        self.assertFalse([node for node in ast.walk(syntax)
+                          if isinstance(node,ast.Delete)])
+        self.assertIn("receive_buffer = receive_buffer[44 + length:]",source)
+
     def test_real_cinput_idle_and_usb(self):
         gint,counters=fake_gint()
         old=sys.modules.get("gint")
