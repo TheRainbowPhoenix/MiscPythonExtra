@@ -88,6 +88,16 @@ class PacketDecoder:
                   "truncated":len(payload)>65536,
                   "packet_type":packet_type})
 
+def connect_upstream(host,port,timeout=8):
+    deadline=time.monotonic()+timeout
+    while True:
+        try:
+            return socket.create_connection((host,port),timeout=1)
+        except OSError:
+            if time.monotonic()>=deadline:
+                raise
+            time.sleep(.025)
+
 def proxy(listen, upstream_host, target_port, listen_port, log, stop_after_one=False, ready=None):
     for host in (listen,upstream_host):
         if host not in ("127.0.0.1","localhost"):
@@ -104,7 +114,7 @@ def proxy(listen, upstream_host, target_port, listen_port, log, stop_after_one=F
             while True:
                 client,_=server.accept()
                 try:
-                    upstream=socket.create_connection((upstream_host,target_port),timeout=10)
+                    upstream=connect_upstream(upstream_host,target_port)
                 except Exception:
                     client.close()
                     if stop_after_one:raise
